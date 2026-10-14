@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Window frame shadow / outline -->
+    <path
+        android:fillColor="#1E293B"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M30,30 L78,30 A6,6 0 0,1 84,36 L84,74 A6,6 0 0,1 78,80 L30,80 A6,6 0 0,1 24,74 L24,36 A6,6 0 0,1 30,30 Z" />
+    
+    <!-- Title bar separator -->
+    <path
+        android:strokeColor="#334155"
+        android:strokeWidth="1.5"
+        android:pathData="M24,42 L84,42" />
+
+    <!-- Terminal dots -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M31,36 A2,2 0 1,1 31,35.99 Z" />
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M37,36 A2,2 0 1,1 37,35.99 Z" />
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M43,36 A2,2 0 1,1 43,35.99 Z" />
+
+    <!-- Terminal Prompt: > -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M34,51 L44,58 L34,65" />
+
+    <!-- Terminal Cursor: _ -->
+    <path
+        android:strokeColor="#4ADE80"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M49,65 L60,65" />
+
+    <!-- SSH Key icon accent in terminal -->
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M70,52 A3.5,3.5 0 1,0 67,56 L67,66 L71,66 L71,63 L74,63 L74,60 L71,60 L71,56.5 A3.5,3.5 0 0,0 70,52 Z" />
+</vector>

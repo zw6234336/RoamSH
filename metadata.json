@@ -1,0 +1,6 @@
+{
+  "name": "RoamSH",
+  "description": "专为远程编程打造的安卓 SSH 终端工具，支持多主机管理、密钥/密码认证、全功能终端控制台、开发者快捷按键栏（ESC/Ctrl/Alt/Tab/方向键等）、常用命令代码片段库以及端口转发隧道。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
