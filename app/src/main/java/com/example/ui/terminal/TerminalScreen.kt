@@ -1,6 +1,12 @@
 package com.example.ui.terminal
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +128,7 @@ fun TerminalScreen(
 
   val isKeepAliveEnabled by viewModel.isKeepAliveEnabled.collectAsState()
   var showKeepAliveDialog by remember { mutableStateOf(false) }
+  var isTmuxModeActive by remember { mutableStateOf(false) }
 
   val inputFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
@@ -218,8 +225,10 @@ fun TerminalScreen(
       autoScroll = autoScroll,
       isKeepAliveEnabled = isKeepAliveEnabled,
       isLineWrapEnabled = isLineWrapEnabled,
+      isTmuxActive = isTmuxModeActive,
       onBack = { viewModel.navigateTo(AppScreen.HOSTS) },
       onToggleLineWrap = { isLineWrapEnabled = !isLineWrapEnabled },
+      onToggleTmux = { isTmuxModeActive = !isTmuxModeActive },
       onToggleKeepAlive = { showKeepAliveDialog = true },
       onToggleAutoScroll = { viewModel.setAutoScroll(!autoScroll) },
       onOpenThemePicker = { showThemeDialog = true },
@@ -387,10 +396,25 @@ fun TerminalScreen(
       }
     }
 
+    // Dedicated Tmux / Screen Control Bar
+    AnimatedVisibility(
+      visible = isTmuxModeActive,
+      enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+      exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+    ) {
+      TmuxControlBar(
+        onSendRawInput = { viewModel.sendTerminalInput(it) },
+        onSendSpecialKey = { viewModel.sendSpecialKey(it) },
+        onCloseBar = { isTmuxModeActive = false }
+      )
+    }
+
     // 3. Developer Extended Keyboard Sticky Bar
     ExtendedKeyboardBar(
       isCtrlActive = isCtrlActive,
       isAltActive = isAltActive,
+      isTmuxActive = isTmuxModeActive,
+      onToggleTmux = { isTmuxModeActive = !isTmuxModeActive },
       savedPassword = activeSession?.host?.password,
       focusRequester = inputFocusRequester,
       terminalLines = lines.map { it.plainText },
@@ -486,8 +510,10 @@ private fun TerminalTopBar(
   autoScroll: Boolean,
   isKeepAliveEnabled: Boolean,
   isLineWrapEnabled: Boolean,
+  isTmuxActive: Boolean = false,
   onBack: () -> Unit,
   onToggleLineWrap: () -> Unit,
+  onToggleTmux: () -> Unit = {},
   onToggleKeepAlive: () -> Unit,
   onToggleAutoScroll: () -> Unit,
   onOpenThemePicker: () -> Unit,
@@ -574,6 +600,25 @@ private fun TerminalTopBar(
           Text(
             text = if (isLineWrapEnabled) "折行" else "对齐",
             color = if (isLineWrapEnabled) Color(0xFF60A5FA) else CyanAccent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+          )
+        }
+
+        // Tmux Quick Toggle Pill in TopBar
+        Box(
+          modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (isTmuxActive) CyanAccent.copy(alpha = 0.25f) else Slate800)
+            .border(1.dp, if (isTmuxActive) CyanAccent else Slate700, RoundedCornerShape(4.dp))
+            .clickable(onClick = onToggleTmux)
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .testTag("btn_topbar_tmux")
+        ) {
+          Text(
+            text = "Tmux",
+            color = if (isTmuxActive) CyanAccent else Color.LightGray,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))

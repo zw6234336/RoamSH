@@ -97,6 +97,8 @@ fun ExtendedKeyboardBar(
   savedPassword: String? = null,
   focusRequester: FocusRequester? = null,
   terminalLines: List<String> = emptyList(),
+  isTmuxActive: Boolean = false,
+  onToggleTmux: () -> Unit = {},
   onToggleCtrl: () -> Unit,
   onToggleAlt: () -> Unit,
   onSendSpecialKey: (String) -> Unit,
@@ -266,6 +268,16 @@ fun ExtendedKeyboardBar(
         ) {
           vibrate()
           onToggleAlt()
+        }
+
+        KeyButton(
+          label = "🔲 Tmux",
+          isActive = isTmuxActive,
+          activeColor = CyanAccent,
+          tag = "key_tmux"
+        ) {
+          vibrate()
+          onToggleTmux()
         }
 
         // Arrow keys directly in the front row for interactive CLI navigation (e.g. agy / menu selection)
