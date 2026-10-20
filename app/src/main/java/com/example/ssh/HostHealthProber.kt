@@ -1,6 +1,6 @@
 package com.example.ssh
 
-import com.example.data.db.SshKeyDao
+import com.example.data.dao.SshKeyDao
 import com.example.data.model.AuthType
 import com.example.data.model.HealthRating
 import com.example.data.model.HostConfig

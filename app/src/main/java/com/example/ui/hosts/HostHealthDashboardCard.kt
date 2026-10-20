@@ -183,10 +183,10 @@ fun HostHealthDashboardCard(
               modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
                 .background(Slate800)
-                .padding(horizontal = 7.dp, vertical = 3.dp)
+                .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
               Text(
-                text = "${avgLatency}ms 均延",
+                text = "${avgLatency}ms",
                 color = CyanAccent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
@@ -199,7 +199,7 @@ fun HostHealthDashboardCard(
             onClick = onProbeAll,
             shape = RoundedCornerShape(6.dp),
             modifier = Modifier.height(28.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
           ) {
             Icon(
               imageVector = Icons.Default.Refresh,
@@ -209,9 +209,9 @@ fun HostHealthDashboardCard(
                 .size(12.dp)
                 .let { if (isProbing) it.rotate(angle) else it }
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(3.dp))
             Text(
-              text = if (isProbing) "体检中" else "全部探测",
+              text = if (isProbing) "体检中" else "体检",
               color = Color.White,
               fontSize = 11.sp,
               fontWeight = FontWeight.Medium

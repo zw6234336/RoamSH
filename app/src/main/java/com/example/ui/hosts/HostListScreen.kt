@@ -35,8 +35,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Tune
+import com.example.data.model.HostHealthMetrics
 import com.example.ui.AppScreen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -91,10 +93,13 @@ fun HostListScreen(
   val availableKeys by viewModel.allKeys.collectAsState()
   val pingStatus by viewModel.pingStatus.collectAsState()
   val sessions by viewModel.sessions.collectAsState()
+  val healthMap by viewModel.hostHealthMap.collectAsState()
+  val isProbingAll by viewModel.isGlobalProbing.collectAsState()
 
   var searchQuery by remember { mutableStateOf("") }
   var selectedTag by remember { mutableStateOf("全部") }
   var hostToEdit by remember { mutableStateOf<HostConfig?>(null) }
+  var hostForHealthDetail by remember { mutableStateOf<HostConfig?>(null) }
   var showAddDialog by remember { mutableStateOf(false) }
 
   val allTags = remember(hosts) {
@@ -188,6 +193,17 @@ fun HostListScreen(
             }
           }
         }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Host Health Dashboard Card
+        HostHealthDashboardCard(
+          hosts = hosts,
+          healthMap = healthMap,
+          isProbing = isProbingAll,
+          onProbeAll = { viewModel.probeAllHostsHealth() },
+          onSelectHostHealth = { hostForHealthDetail = it }
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -332,11 +348,13 @@ fun HostListScreen(
             HostCardItem(
               host = host,
               isOnline = pingStatus[host.id],
+              health = healthMap[host.id],
               activeSessionsCount = hostSessionsCount,
               onConnect = { viewModel.connectToHost(host) },
               onConnectNewTab = { viewModel.createNewTab(host) },
               onConnectSandbox = { viewModel.connectToHost(host, forceSimulation = true) },
               onTestPing = { viewModel.testHostPing(host) },
+              onShowHealthDetail = { hostForHealthDetail = host },
               onToggleStar = { viewModel.toggleHostStar(host) },
               onEdit = { hostToEdit = host },
               onDelete = { viewModel.deleteHost(host) }
@@ -371,17 +389,31 @@ fun HostListScreen(
       onDismiss = { hostToEdit = null }
     )
   }
+
+  hostForHealthDetail?.let { host ->
+    HostHealthDetailDialog(
+      host = host,
+      health = healthMap[host.id],
+      onRefresh = { viewModel.probeHostHealth(host) },
+      onConnectTerminal = {
+        viewModel.connectToHost(host)
+      },
+      onDismiss = { hostForHealthDetail = null }
+    )
+  }
 }
 
 @Composable
 private fun HostCardItem(
   host: HostConfig,
   isOnline: Boolean?,
+  health: HostHealthMetrics? = null,
   activeSessionsCount: Int = 0,
   onConnect: () -> Unit,
   onConnectNewTab: () -> Unit,
   onConnectSandbox: () -> Unit,
   onTestPing: () -> Unit,
+  onShowHealthDetail: () -> Unit,
   onToggleStar: () -> Unit,
   onEdit: () -> Unit,
   onDelete: () -> Unit
@@ -499,6 +531,14 @@ private fun HostCardItem(
                 }
               )
               DropdownMenuItem(
+                text = { Text("主机健康监控看板", color = Color.White) },
+                leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent) },
+                onClick = {
+                  menuExpanded = false
+                  onShowHealthDetail()
+                }
+              )
+              DropdownMenuItem(
                 text = { Text("测试 Ping 连通性", color = Color.White) },
                 leadingIcon = { Icon(Icons.Default.NetworkCheck, contentDescription = null, tint = Color.White) },
                 onClick = {
@@ -527,11 +567,21 @@ private fun HostCardItem(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          val (pingColor, pingLabel) = when (isOnline) {
-            true -> Pair(EmeraldSuccess, "连通良好")
-            false -> Pair(RoseError, "连接超时")
-            null -> Pair(Color.Gray, "未探测")
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.clickable { onShowHealthDetail() }
+        ) {
+          val (pingColor, pingLabel) = when {
+            health?.isProbing == true -> Pair(CyanAccent, "体检中...")
+            health?.isOnline == true -> {
+              val ms = health.latencyMs ?: 0L
+              val rating = if (ms < 80) "极佳" else "良好"
+              Pair(EmeraldSuccess, "$rating ${ms}ms")
+            }
+            health?.isOnline == false -> Pair(RoseError, "连接超时")
+            isOnline == true -> Pair(EmeraldSuccess, "连通良好")
+            isOnline == false -> Pair(RoseError, "连接超时")
+            else -> Pair(Color.Gray, "未探测")
           }
           Box(
             modifier = Modifier
@@ -540,9 +590,9 @@ private fun HostCardItem(
               .background(pingColor)
           )
           Spacer(modifier = Modifier.width(5.dp))
-          Text(text = pingLabel, color = Color.Gray, fontSize = 11.sp)
+          Text(text = pingLabel, color = pingColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
 
-          Spacer(modifier = Modifier.width(12.dp))
+          Spacer(modifier = Modifier.width(10.dp))
           Text(
             text = if (host.authType == AuthType.PASSWORD) "密码认证" else "密钥认证",
             color = Color.LightGray,
@@ -550,14 +600,46 @@ private fun HostCardItem(
           )
         }
 
-        if (host.initialCommand.isNotBlank()) {
-          Text(
-            text = "启动: ${host.initialCommand}",
-            color = Color.Gray,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1
-          )
+        Box(
+          modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Slate800)
+            .clickable { onShowHealthDetail() }
+            .padding(horizontal = 7.dp, vertical = 3.dp)
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(12.dp))
+            Spacer(modifier = Modifier.width(3.dp))
+            Text("健康看板", color = CyanAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+          }
+        }
+      }
+
+      // Live Telemetry Mini Strip
+      if (health?.hasSystemMetrics == true) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(Slate950)
+            .clickable { onShowHealthDetail() }
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          if (health.cpuUsagePercent != null) {
+            Text("💻 CPU ${health.cpuUsagePercent}%", color = Color.LightGray, fontSize = 11.sp)
+          }
+          if (health.memUsagePercent != null) {
+            val memText = health.memUsedMb?.let { used ->
+              if (used > 1024) String.format("%.1fG", used / 1024f) else "${used}M"
+            } ?: ""
+            Text("🧠 RAM ${health.memUsagePercent}% $memText", color = Color.LightGray, fontSize = 11.sp)
+          }
+          if (health.diskUsagePercent != null) {
+            Text("💾 磁盘 ${health.diskUsagePercent}%", color = Color.LightGray, fontSize = 11.sp)
+          }
         }
       }
 
@@ -588,15 +670,27 @@ private fun HostCardItem(
         }
 
         OutlinedButton(
+          onClick = onShowHealthDetail,
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier
+            .height(38.dp)
+            .testTag("btn_health_${host.id}")
+        ) {
+          Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("体检看板", color = CyanAccent, fontSize = 12.sp)
+        }
+
+        OutlinedButton(
           onClick = onConnectSandbox,
           shape = RoundedCornerShape(8.dp),
           modifier = Modifier
             .height(38.dp)
             .testTag("btn_sandbox_${host.id}")
         ) {
-          Icon(Icons.Default.PlayArrow, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
+          Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("沙箱体验", color = CyanAccent, fontSize = 12.sp)
+          Text("沙箱", color = Color.Gray, fontSize = 12.sp)
         }
       }
     }

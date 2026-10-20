@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -304,10 +305,11 @@ fun HostHealthDetailDialog(
                 if (metrics.load1m != null) {
                   Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                   ) {
                     Text(
-                      text = "负载均衡 (1m / 5m / 15m)",
+                      text = "负载 (1m / 5m / 15m)",
                       color = Color.Gray,
                       fontSize = 11.sp
                     )
@@ -483,21 +485,23 @@ fun HostHealthDetailDialog(
     confirmButton = {
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
       ) {
         OutlinedButton(
           onClick = { copyDiagnosticReport() },
-          modifier = Modifier.weight(1f).height(38.dp),
+          contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+          modifier = Modifier.weight(1f).height(36.dp),
           shape = RoundedCornerShape(8.dp)
         ) {
-          Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(14.dp))
-          Spacer(modifier = Modifier.width(4.dp))
-          Text("诊断报告", fontSize = 11.sp, color = Color.White)
+          Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(13.dp))
+          Spacer(modifier = Modifier.width(3.dp))
+          Text("报告", fontSize = 11.sp, color = Color.White)
         }
 
         OutlinedButton(
           onClick = onRefresh,
-          modifier = Modifier.weight(1f).height(38.dp),
+          contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+          modifier = Modifier.weight(1f).height(36.dp),
           shape = RoundedCornerShape(8.dp)
         ) {
           Icon(
@@ -505,11 +509,11 @@ fun HostHealthDetailDialog(
             contentDescription = null,
             tint = CyanAccent,
             modifier = Modifier
-              .size(14.dp)
+              .size(13.dp)
               .let { if (metrics.isProbing) it.rotate(angle) else it }
           )
-          Spacer(modifier = Modifier.width(4.dp))
-          Text(if (metrics.isProbing) "体检中..." else "重新体检", fontSize = 11.sp, color = Color.White)
+          Spacer(modifier = Modifier.width(3.dp))
+          Text(if (metrics.isProbing) "体检中" else "刷新", fontSize = 11.sp, color = Color.White)
         }
 
         Button(
@@ -518,12 +522,13 @@ fun HostHealthDetailDialog(
             onConnectTerminal()
           },
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
-          modifier = Modifier.weight(1.2f).height(38.dp),
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+          modifier = Modifier.weight(1.4f).height(36.dp),
           shape = RoundedCornerShape(8.dp)
         ) {
-          Icon(Icons.Default.Terminal, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+          Icon(Icons.Default.Terminal, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("直达终端", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+          Text("连接终端", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
         }
       }
     },
