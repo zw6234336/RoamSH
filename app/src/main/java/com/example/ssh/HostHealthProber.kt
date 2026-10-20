@@ -342,6 +342,6 @@ object HostHealthProber {
 
   private fun isSimulatedOrDemoHost(cleanHost: String): Boolean {
     val h = cleanHost.lowercase()
-    return h == "simulation" || h == "local-sandbox" || h == "sandbox" || h == "localhost" || h == "127.0.0.1" || h.contains("100.77.165.35")
+    return h == "simulation" || h == "local-sandbox" || h == "sandbox" || h == "localhost" || h == "127.0.0.1" || h.contains("demo") || h.contains("example")
   }
 }
