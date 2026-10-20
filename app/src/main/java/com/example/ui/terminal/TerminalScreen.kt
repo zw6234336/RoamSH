@@ -100,8 +100,14 @@ fun TerminalScreen(
   viewModel: DevSshViewModel,
   modifier: Modifier = Modifier
 ) {
-  val connectionState by viewModel.sshManager.connectionState.collectAsState()
-  val lines by viewModel.sshManager.terminalParser.lines.collectAsState()
+  val sessions by viewModel.sessions.collectAsState()
+  val activeSessionId by viewModel.activeSessionId.collectAsState()
+  val activeSession by viewModel.activeSession.collectAsState()
+  val allHosts by viewModel.allHosts.collectAsState()
+
+  val currentSshManager = activeSession?.sshManager ?: viewModel.sshManager
+  val connectionState by currentSshManager.connectionState.collectAsState()
+  val lines by currentSshManager.terminalParser.lines.collectAsState()
   val fontSize by viewModel.terminalFontSize.collectAsState()
   val themeType by viewModel.terminalThemeType.collectAsState()
   val theme = viewModel.currentThemeScheme
@@ -109,9 +115,9 @@ fun TerminalScreen(
   val isCtrlActive by viewModel.isCtrlActive.collectAsState()
   val isAltActive by viewModel.isAltActive.collectAsState()
 
-  // Use persistent LazyListState from ViewModel so scroll position is never lost on tab switch or pause
-  val listState = viewModel.terminalListState
-  val autoScroll by viewModel.autoScroll.collectAsState()
+  // Use persistent LazyListState from active session so each tab preserves its own position
+  val listState = activeSession?.listState ?: viewModel.terminalListState
+  val autoScroll by (activeSession?.autoScroll ?: viewModel.autoScroll).collectAsState()
   var showThemeDialog by remember { mutableStateOf(false) }
 
   val isKeepAliveEnabled by viewModel.isKeepAliveEnabled.collectAsState()
@@ -220,14 +226,23 @@ fun TerminalScreen(
       onOpenSettings = { viewModel.navigateTo(AppScreen.SETTINGS) },
       onIncreaseFont = { viewModel.setTerminalFontSize(fontSize + 1) },
       onDecreaseFont = { viewModel.setTerminalFontSize(fontSize - 1) },
-      onClearTerminal = { viewModel.sshManager.terminalParser.clear() },
+      onClearTerminal = { currentSshManager.terminalParser.clear() },
       onDisconnect = { viewModel.disconnectCurrentSession() },
-      onReconnect = {
-        viewModel.sshManager.currentHost?.let {
-          viewModel.connectToHost(it)
-        }
-      }
+      onReconnect = { viewModel.reconnectCurrentSession() }
     )
+
+    // 2. Multi-Session Tab Strip
+    if (sessions.isNotEmpty()) {
+      TerminalTabBar(
+        sessions = sessions,
+        activeSessionId = activeSessionId,
+        allHosts = allHosts,
+        onSelectSession = { viewModel.selectSession(it) },
+        onCloseSession = { viewModel.closeSession(it) },
+        onRenameSession = { id, title -> viewModel.renameSession(id, title) },
+        onNewTab = { host, isSim -> viewModel.createNewTab(host, isSim) }
+      )
+    }
 
     // 2. Terminal Main Output Viewport
     Box(
@@ -376,7 +391,7 @@ fun TerminalScreen(
     ExtendedKeyboardBar(
       isCtrlActive = isCtrlActive,
       isAltActive = isAltActive,
-      savedPassword = viewModel.sshManager.currentHost?.password,
+      savedPassword = activeSession?.host?.password,
       focusRequester = inputFocusRequester,
       terminalLines = lines.map { it.plainText },
       onToggleCtrl = { viewModel.toggleCtrlLatch() },

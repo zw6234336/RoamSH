@@ -88,6 +88,7 @@ import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.Slate950
+import com.example.util.PasswordManagerHelper
 
 @Composable
 fun ExtendedKeyboardBar(
@@ -324,7 +325,7 @@ fun ExtendedKeyboardBar(
           }
         }
 
-        // 1Password & Credentials Fast Fill Button
+        // Credentials Fast Fill Button
         Box {
           Box(
             modifier = Modifier
@@ -336,11 +337,11 @@ fun ExtendedKeyboardBar(
                 showPasswordMenu = true
               }
               .padding(horizontal = 8.dp)
-              .testTag("btn_1password_fill"),
+              .testTag("btn_credentials_fill"),
             contentAlignment = Alignment.Center
           ) {
             Text(
-              text = "🔑 1Password",
+              text = "🔑 凭据填充",
               color = CyanAccent,
               fontSize = 11.sp,
               fontWeight = FontWeight.Bold
@@ -352,6 +353,14 @@ fun ExtendedKeyboardBar(
             onDismissRequest = { showPasswordMenu = false },
             modifier = Modifier.background(Slate900)
           ) {
+            DropdownMenuItem(
+              text = { Text("🚀 打开密码管理器应用", color = CyanAccent, fontWeight = FontWeight.Bold) },
+              onClick = {
+                vibrate()
+                showPasswordMenu = false
+                PasswordManagerHelper.launchPasswordManager(context)
+              }
+            )
             if (!savedPassword.isNullOrBlank()) {
               DropdownMenuItem(
                 text = { Text("填入主机保存密码 (Enter)", color = Color.White) },
@@ -364,7 +373,7 @@ fun ExtendedKeyboardBar(
               )
             }
             DropdownMenuItem(
-              text = { Text("粘贴 1Password 剪贴板密码 (Enter)", color = Color.White) },
+              text = { Text("粘贴剪贴板密码 (Enter)", color = Color.White) },
               onClick = {
                 vibrate()
                 try {
@@ -372,7 +381,7 @@ fun ExtendedKeyboardBar(
                   val clip = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                   if (clip.isNotBlank()) {
                     onSendRawInput(clip + "\r")
-                    android.widget.Toast.makeText(context, "已粘贴并发送 1Password 密码", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "已粘贴并发送密码", android.widget.Toast.LENGTH_SHORT).show()
                   } else {
                     android.widget.Toast.makeText(context, "剪贴板为空", android.widget.Toast.LENGTH_SHORT).show()
                   }
@@ -381,7 +390,7 @@ fun ExtendedKeyboardBar(
               }
             )
             DropdownMenuItem(
-              text = { Text("粘贴 1Password 剪贴板用户名", color = Color.White) },
+              text = { Text("粘贴剪贴板用户名", color = Color.White) },
               onClick = {
                 vibrate()
                 try {
@@ -398,7 +407,7 @@ fun ExtendedKeyboardBar(
               }
             )
             DropdownMenuItem(
-              text = { Text("粘贴 1Password Token / 密钥", color = Color.White) },
+              text = { Text("粘贴剪贴板 Token / 密钥", color = Color.White) },
               onClick = {
                 vibrate()
                 try {

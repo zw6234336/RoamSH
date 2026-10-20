@@ -434,6 +434,8 @@ class SshManager(
     _connectionState.value = SshConnectionState.Disconnected
   }
 
+  fun getSession(): Session? = session
+
   suspend fun checkHostPing(host: String, port: Int, timeoutMs: Int = 3000): Boolean = withContext(Dispatchers.IO) {
     try {
       val rawHost = host.trim()

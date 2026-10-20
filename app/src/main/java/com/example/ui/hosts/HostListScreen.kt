@@ -90,6 +90,7 @@ fun HostListScreen(
   val hosts by viewModel.allHosts.collectAsState()
   val availableKeys by viewModel.allKeys.collectAsState()
   val pingStatus by viewModel.pingStatus.collectAsState()
+  val sessions by viewModel.sessions.collectAsState()
 
   var searchQuery by remember { mutableStateOf("") }
   var selectedTag by remember { mutableStateOf("全部") }
@@ -327,10 +328,13 @@ fun HostListScreen(
             .testTag("hosts_list")
         ) {
           items(filteredHosts, key = { it.id }) { host ->
+            val hostSessionsCount = sessions.count { it.host.id == host.id }
             HostCardItem(
               host = host,
               isOnline = pingStatus[host.id],
+              activeSessionsCount = hostSessionsCount,
               onConnect = { viewModel.connectToHost(host) },
+              onConnectNewTab = { viewModel.createNewTab(host) },
               onConnectSandbox = { viewModel.connectToHost(host, forceSimulation = true) },
               onTestPing = { viewModel.testHostPing(host) },
               onToggleStar = { viewModel.toggleHostStar(host) },
@@ -373,7 +377,9 @@ fun HostListScreen(
 private fun HostCardItem(
   host: HostConfig,
   isOnline: Boolean?,
+  activeSessionsCount: Int = 0,
   onConnect: () -> Unit,
+  onConnectNewTab: () -> Unit,
   onConnectSandbox: () -> Unit,
   onTestPing: () -> Unit,
   onToggleStar: () -> Unit,
@@ -417,25 +423,37 @@ private fun HostCardItem(
           }
           Spacer(modifier = Modifier.width(10.dp))
           Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Text(
-                text = host.name,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-              )
-              if (host.groupTag.isNotBlank()) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                  modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Slate800)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                  Text(host.groupTag, color = CyanAccent, fontSize = 10.sp)
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                  text = host.name,
+                  color = Color.White,
+                  fontSize = 15.sp,
+                  fontWeight = FontWeight.Bold
+                )
+                if (activeSessionsCount > 0) {
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Box(
+                    modifier = Modifier
+                      .clip(RoundedCornerShape(4.dp))
+                      .background(EmeraldSuccess.copy(alpha = 0.2f))
+                      .border(1.dp, EmeraldSuccess.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                      .padding(horizontal = 5.dp, vertical = 2.dp)
+                  ) {
+                    Text("$activeSessionsCount 个会话", color = EmeraldSuccess, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                  }
+                }
+                if (host.groupTag.isNotBlank()) {
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Box(
+                    modifier = Modifier
+                      .clip(RoundedCornerShape(4.dp))
+                      .background(Slate800)
+                      .padding(horizontal = 6.dp, vertical = 2.dp)
+                  ) {
+                    Text(host.groupTag, color = CyanAccent, fontSize = 10.sp)
+                  }
                 }
               }
-            }
             Text(
               text = "${host.username}@${host.host}:${host.port}",
               color = Color.LightGray,
@@ -464,6 +482,14 @@ private fun HostCardItem(
               onDismissRequest = { menuExpanded = false },
               modifier = Modifier.background(Slate800)
             ) {
+              DropdownMenuItem(
+                text = { Text("在新建标签页打开", color = Color.White) },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = CyanAccent) },
+                onClick = {
+                  menuExpanded = false
+                  onConnectNewTab()
+                }
+              )
               DropdownMenuItem(
                 text = { Text("编辑配置", color = Color.White) },
                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White) },
@@ -553,7 +579,12 @@ private fun HostCardItem(
         ) {
           Icon(Icons.Default.Terminal, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(6.dp))
-          Text("连接终端", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+          Text(
+            text = if (activeSessionsCount > 0) "进入终端 ($activeSessionsCount)" else "连接终端",
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp
+          )
         }
 
         OutlinedButton(

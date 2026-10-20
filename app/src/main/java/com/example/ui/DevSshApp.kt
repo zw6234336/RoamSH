@@ -92,18 +92,21 @@ fun DevSshApp(
           )
 
           // 2. Terminal
-          val isConnected = connectionState is SshConnectionState.Connected
+          val sessions by viewModel.sessions.collectAsState()
+          val hasConnectedSessions = sessions.any { it.sshManager.connectionState.value is SshConnectionState.Connected }
           NavigationBarItem(
             selected = currentScreen == AppScreen.TERMINAL,
             onClick = { viewModel.navigateTo(AppScreen.TERMINAL) },
             icon = {
               BadgedBox(
                 badge = {
-                  if (isConnected) {
+                  if (sessions.isNotEmpty()) {
                     Badge(
-                      containerColor = EmeraldSuccess,
-                      modifier = Modifier.size(6.dp)
-                    )
+                      containerColor = if (hasConnectedSessions) EmeraldSuccess else CyanAccent,
+                      contentColor = Color.Black
+                    ) {
+                      Text("${sessions.size}", fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    }
                   }
                 }
               ) {

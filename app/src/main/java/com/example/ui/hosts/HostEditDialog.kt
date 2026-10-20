@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VpnKey
+import com.example.util.PasswordManagerHelper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -95,7 +98,7 @@ fun HostEditDialog(
 
   var showPassword by remember { mutableStateOf(false) }
   var keyDropdownExpanded by remember { mutableStateOf(false) }
-  var show1PasswordPasteModal by remember { mutableStateOf(false) }
+  var showManualPasteModal by remember { mutableStateOf(false) }
   var autofillMessage by remember { mutableStateOf<String?>(null) }
 
   val predefinedTags = listOf("电脑", "工作", "家庭", "MacBook", "WSL", "Linux", "云服务器")
@@ -114,10 +117,10 @@ fun HostEditDialog(
     }
 
     if (filledCount > 0) {
-      autofillMessage = "成功从 1Password 解析填入 $filledCount 项配置！"
-      Toast.makeText(context, "已填入 1Password 凭据", Toast.LENGTH_SHORT).show()
+      autofillMessage = "成功智能解析并填入 $filledCount 项配置！"
+      Toast.makeText(context, "已填入凭据配置", Toast.LENGTH_SHORT).show()
     } else {
-      Toast.makeText(context, "未能识别 1Password 格式，可点击展开手动粘贴", Toast.LENGTH_LONG).show()
+      Toast.makeText(context, "未能识别凭据格式，可手动粘贴或点击打开密码管理器", Toast.LENGTH_LONG).show()
     }
   }
 
@@ -130,7 +133,7 @@ fun HostEditDialog(
         if (text.isNotBlank()) {
           handleParseCredentials(text)
         } else {
-          Toast.makeText(context, "剪贴板为空，请先在 1Password 复制凭据或条目", Toast.LENGTH_SHORT).show()
+          Toast.makeText(context, "剪贴板为空，可点击打开密码管理器复制凭据", Toast.LENGTH_SHORT).show()
         }
       } else {
         Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
@@ -154,7 +157,7 @@ fun HostEditDialog(
             password = parsed.password
             authType = AuthType.PASSWORD
           }
-          Toast.makeText(context, "已从 1Password 填入地址", Toast.LENGTH_SHORT).show()
+          Toast.makeText(context, "已填入主机地址", Toast.LENGTH_SHORT).show()
         } else {
           val cleanNoProto = text.removePrefix("ssh://").removePrefix("http://").removePrefix("https://").trim()
           val withoutUser = if (cleanNoProto.contains("@")) {
@@ -220,7 +223,7 @@ fun HostEditDialog(
           .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        // 1Password One-Tap Autofill Banner
+        // Credentials Autofill & Password Manager Launch Banner
         Box(
           modifier = Modifier
             .fillMaxWidth()
@@ -228,53 +231,60 @@ fun HostEditDialog(
             .background(Color(0xFF0F264A))
             .padding(10.dp)
         ) {
-          Column {
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                  imageVector = Icons.Default.Password,
-                  contentDescription = null,
-                  tint = CyanAccent,
-                  modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                  text = "1Password 凭据快速填入",
-                  color = Color.White,
-                  fontSize = 12.sp,
-                  fontWeight = FontWeight.Bold
-                )
+              Icon(
+                imageVector = Icons.Default.VpnKey,
+                contentDescription = null,
+                tint = CyanAccent,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = "凭据智能填入",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+              )
+            }
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              OutlinedButton(
+                onClick = { PasswordManagerHelper.launchPasswordManager(context) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier
+                  .weight(1f)
+                  .height(32.dp),
+                shape = RoundedCornerShape(6.dp)
+              ) {
+                Icon(Icons.Default.Key, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(13.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("打开密码管理器", fontSize = 11.sp, color = Color.White)
               }
 
-              Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(
-                  onClick = { show1PasswordPasteModal = true },
-                  modifier = Modifier.height(30.dp),
-                  shape = RoundedCornerShape(6.dp)
-                ) {
-                  Text("手动粘贴", fontSize = 11.sp, color = Color.White)
-                }
-
-                Button(
-                  onClick = { readClipboardAndFill() },
-                  colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
-                  modifier = Modifier.height(30.dp),
-                  shape = RoundedCornerShape(6.dp)
-                ) {
-                  Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
-                  Spacer(modifier = Modifier.width(3.dp))
-                  Text("自动解析", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                }
+              Button(
+                onClick = { readClipboardAndFill() },
+                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier
+                  .weight(1f)
+                  .height(32.dp),
+                shape = RoundedCornerShape(6.dp)
+              ) {
+                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("剪贴板快速解析", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
               }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
-              text = "支持 1Password 复制的 SSH 地址、用户名、密码或连接命令 (ssh user@host -p port)",
+              text = "支持自动解析剪贴板复制的 SSH 地址、用户名、密码或连接命令",
               color = Color.LightGray,
               fontSize = 10.sp
             )
@@ -332,14 +342,14 @@ fun HostEditDialog(
               }
               hostAddress = clean
             },
-            label = { Text("IP / 1Password 地址") },
+            label = { Text("主机 IP / 域名地址") },
             placeholder = { Text("192.168.1.100 或 local") },
             singleLine = true,
             trailingIcon = {
               IconButton(onClick = { pasteToHost() }) {
                 Icon(
                   imageVector = Icons.Default.ContentPaste,
-                  contentDescription = "从 1Password 粘贴地址",
+                  contentDescription = "粘贴地址",
                   tint = CyanAccent,
                   modifier = Modifier.size(18.dp)
                 )
@@ -372,16 +382,26 @@ fun HostEditDialog(
         OutlinedTextField(
           value = username,
           onValueChange = { username = it },
-          label = { Text("登录用户名 (1Password 用户名)") },
+          label = { Text("登录用户名") },
           singleLine = true,
           trailingIcon = {
-            IconButton(onClick = { pasteToUsername() }) {
-              Icon(
-                imageVector = Icons.Default.ContentPaste,
-                contentDescription = "从 1Password 粘贴用户名",
-                tint = CyanAccent,
-                modifier = Modifier.size(18.dp)
-              )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              IconButton(onClick = { PasswordManagerHelper.launchPasswordManager(context) }) {
+                Icon(
+                  imageVector = Icons.Default.Key,
+                  contentDescription = "调用密码管理器",
+                  tint = CyanAccent,
+                  modifier = Modifier.size(18.dp)
+                )
+              }
+              IconButton(onClick = { pasteToUsername() }) {
+                Icon(
+                  imageVector = Icons.Default.ContentPaste,
+                  contentDescription = "粘贴用户名",
+                  tint = Color.LightGray,
+                  modifier = Modifier.size(18.dp)
+                )
+              }
             }
           },
           keyboardOptions = KeyboardOptions(
@@ -427,7 +447,7 @@ fun HostEditDialog(
           horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
           listOf(
-            AuthType.PASSWORD to "密码认证 (1Password)",
+            AuthType.PASSWORD to "密码认证",
             AuthType.PRIVATE_KEY to "SSH 密钥"
           ).forEach { (type, label) ->
             val isSelected = authType == type
@@ -449,7 +469,7 @@ fun HostEditDialog(
           OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("SSH 密码 (1Password 密码)") },
+            label = { Text("SSH 密码") },
             singleLine = true,
             visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
@@ -458,11 +478,19 @@ fun HostEditDialog(
             ),
             trailingIcon = {
               Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { PasswordManagerHelper.launchPasswordManager(context) }) {
+                  Icon(
+                    imageVector = Icons.Default.Key,
+                    contentDescription = "调用密码管理器",
+                    tint = CyanAccent,
+                    modifier = Modifier.size(18.dp)
+                  )
+                }
                 IconButton(onClick = { pasteToPassword() }) {
                   Icon(
                     imageVector = Icons.Default.ContentPaste,
-                    contentDescription = "从 1Password 粘贴密码",
-                    tint = CyanAccent,
+                    contentDescription = "粘贴密码",
+                    tint = Color.LightGray,
                     modifier = Modifier.size(18.dp)
                   )
                 }
@@ -595,22 +623,22 @@ fun HostEditDialog(
     }
   )
 
-  // Manual 1Password Paste & Extract Dialog
-  if (show1PasswordPasteModal) {
+  // Manual Credentials Paste & Extract Dialog
+  if (showManualPasteModal) {
     var rawInput by remember { mutableStateOf("") }
     AlertDialog(
-      onDismissRequest = { show1PasswordPasteModal = false },
+      onDismissRequest = { showManualPasteModal = false },
       title = {
         Row(verticalAlignment = Alignment.CenterVertically) {
           Icon(Icons.Default.Password, contentDescription = null, tint = CyanAccent)
           Spacer(modifier = Modifier.width(8.dp))
-          Text("手动粘贴 1Password 条目内容", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+          Text("手动粘贴凭据内容", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
       },
       text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
-            text = "从 1Password 复制条目文本、SSH URL 或命令，粘贴到下方即可自动解析填入：",
+            text = "从密码管理器或终端复制条目文本、SSH URL 或命令，粘贴到下方即可自动解析填入：",
             color = Color.LightGray,
             fontSize = 11.sp
           )
@@ -630,7 +658,7 @@ fun HostEditDialog(
           onClick = {
             if (rawInput.isNotBlank()) {
               handleParseCredentials(rawInput)
-              show1PasswordPasteModal = false
+              showManualPasteModal = false
             }
           },
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
@@ -640,7 +668,7 @@ fun HostEditDialog(
         }
       },
       dismissButton = {
-        TextButton(onClick = { show1PasswordPasteModal = false }) {
+        TextButton(onClick = { showManualPasteModal = false }) {
           Text("取消")
         }
       }
