@@ -68,4 +68,9 @@ object SpecialKeyHandler {
       else -> ""
     }
   }
+
+  // SGR mouse encoding for Tmux / terminal mouse mode (mouse on)
+  fun mouseWheelUp(col: Int = 1, row: Int = 1): String = "\u001b[<64;$col;${row}M"
+  fun mouseWheelDown(col: Int = 1, row: Int = 1): String = "\u001b[<65;$col;${row}M"
+  fun mouseClick(col: Int = 1, row: Int = 1): String = "\u001b[<0;$col;${row}M\u001b[<0;$col;${row}m"
 }

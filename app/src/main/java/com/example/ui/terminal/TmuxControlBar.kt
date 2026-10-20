@@ -8,11 +8,11 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,23 +24,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.ViewColumn
-import androidx.compose.material.icons.filled.ViewStream
-import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,10 +45,16 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ssh.SpecialKeyHandler
@@ -80,6 +83,12 @@ enum class TerminalMultiplexerType {
   SCREEN
 }
 
+data class TmuxWindowItem(
+  val index: Int,
+  val title: String
+)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TmuxControlBar(
   onSendRawInput: (String) -> Unit,
@@ -92,6 +101,19 @@ fun TmuxControlBar(
   var customPrefix by remember { mutableStateOf<String?>(null) }
   var showModeMenu by remember { mutableStateOf(false) }
   var showAdvancedDialog by remember { mutableStateOf(false) }
+
+  // Touch scroll & Mouse mode: enabled by default to mirror external terminal touch behavior!
+  var isTouchScrollActive by remember { mutableStateOf(true) }
+
+  // Visual Window Tabs aligned with external TabBar experience
+  val tmuxWindows = remember {
+    mutableStateListOf(
+      TmuxWindowItem(0, "窗口 1"),
+      TmuxWindowItem(1, "窗口 2")
+    )
+  }
+  var activeWindowIndex by remember { mutableIntStateOf(0) }
+  var windowToRename by remember { mutableStateOf<TmuxWindowItem?>(null) }
 
   val prefix = customPrefix ?: if (multiplexerType == TerminalMultiplexerType.TMUX) {
     SpecialKeyHandler.CTRL_B
@@ -107,12 +129,12 @@ fun TmuxControlBar(
 
   fun vibrate() {
     try {
-      val v = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+      val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        v.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
+        v?.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
       } else {
         @Suppress("DEPRECATION")
-        v.vibrate(18)
+        v?.vibrate(18)
       }
     } catch (_: Exception) {}
   }
@@ -123,6 +145,11 @@ fun TmuxControlBar(
     if (toastMsg != null) {
       Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
     }
+  }
+
+  // Automatically enable Tmux mouse & touch support on mount so mobile touch scrolling works out of the box!
+  LaunchedEffect(Unit) {
+    onSendRawInput("tmux set -g mouse on\r")
   }
 
   Surface(
@@ -141,19 +168,18 @@ fun TmuxControlBar(
         .fillMaxWidth()
         .padding(vertical = 4.dp, horizontal = 6.dp)
     ) {
-      // Row 1: Multiplexer Mode, Window & Pane Actions
+      // Tier 1: Visual Tmux Window Tabs Strip (Aligned with external TerminalTabBar)
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+          .height(34.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
         // Mode & Prefix Selector Pill
         Box {
           Box(
             modifier = Modifier
-              .height(30.dp)
+              .height(28.dp)
               .clip(RoundedCornerShape(6.dp))
               .background(Color(0xFF0F264A))
               .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
@@ -180,7 +206,7 @@ fun TmuxControlBar(
                 fontWeight = FontWeight.Bold
               )
               Spacer(modifier = Modifier.width(2.dp))
-              Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(14.dp))
+              Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(13.dp))
             }
           }
 
@@ -218,7 +244,191 @@ fun TmuxControlBar(
           }
         }
 
-        // Section: Pane Splitting (分屏)
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // Scrollable Window Tabs (Click to switch, x to close, long-press to rename)
+        Row(
+          modifier = Modifier
+            .weight(1f)
+            .horizontalScroll(rememberScrollState()),
+          horizontalArrangement = Arrangement.spacedBy(5.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          tmuxWindows.forEach { win ->
+            val isActive = win.index == activeWindowIndex
+            val tabShape = RoundedCornerShape(6.dp)
+            val tabBg = if (isActive) Color(0xFF1E293B) else Color(0xFF0F172A)
+            val tabBorder = if (isActive) CyanAccent.copy(alpha = 0.85f) else Color(0xFF1E293B)
+            val textColor = if (isActive) Color.White else Color(0xFF94A3B8)
+
+            Box(
+              modifier = Modifier
+                .clip(tabShape)
+                .background(tabBg)
+                .border(if (isActive) 1.5.dp else 1.dp, tabBorder, tabShape)
+                .combinedClickable(
+                  onClick = {
+                    vibrate()
+                    activeWindowIndex = win.index
+                    // Standard Tmux window switch: prefix + windowIndex
+                    onSendRawInput(prefix + win.index.toString())
+                  },
+                  onLongClick = {
+                    vibrate()
+                    windowToRename = win
+                  }
+                )
+                .padding(start = 7.dp, end = 4.dp, top = 3.dp, bottom = 3.dp)
+                .testTag("tmux_tab_${win.index}"),
+              contentAlignment = Alignment.CenterStart
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+              ) {
+                // Active Dot Indicator
+                Box(
+                  modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(if (isActive) CyanAccent else Color(0xFF475569))
+                )
+
+                // Window Label
+                Text(
+                  text = "${win.index}: ${win.title}",
+                  color = textColor,
+                  fontSize = 11.sp,
+                  fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.widthIn(max = 100.dp)
+                )
+
+                // Close Window Tab Button (x)
+                if (tmuxWindows.size > 1) {
+                  Box(
+                    modifier = Modifier
+                      .size(16.dp)
+                      .clip(CircleShape)
+                      .background(if (isActive) Color(0x33FFFFFF) else Color.Transparent)
+                      .clickable {
+                        vibrate()
+                        // Sends kill-window
+                        onSendRawInput(prefix + "&")
+                        tmuxWindows.remove(win)
+                        if (activeWindowIndex == win.index) {
+                          activeWindowIndex = tmuxWindows.first().index
+                          onSendRawInput(prefix + activeWindowIndex.toString())
+                        }
+                      },
+                    contentAlignment = Alignment.Center
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.Close,
+                      contentDescription = "关闭窗口",
+                      tint = if (isActive) Color.White else Color.Gray,
+                      modifier = Modifier.size(10.dp)
+                    )
+                  }
+                }
+              }
+            }
+          }
+
+          // New Window (+) Tab Button, exactly like external TerminalTabBar
+          Box(
+            modifier = Modifier
+              .size(28.dp)
+              .clip(RoundedCornerShape(6.dp))
+              .background(Color(0xFF1E293B))
+              .border(1.dp, CyanAccent.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+              .clickable {
+                vibrate()
+                val nextIdx = (tmuxWindows.maxOfOrNull { it.index } ?: -1) + 1
+                val newWin = TmuxWindowItem(nextIdx, "窗口 ${nextIdx + 1}")
+                tmuxWindows.add(newWin)
+                activeWindowIndex = nextIdx
+                sendPrefixCommand("c", "已新建 Tmux 窗口")
+              }
+              .testTag("btn_tmux_new_tab"),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.Add,
+              contentDescription = "新建 Tmux 窗口",
+              tint = CyanAccent,
+              modifier = Modifier.size(15.dp)
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Close Control Bar Button
+        IconButton(
+          onClick = {
+            vibrate()
+            onCloseBar()
+          },
+          modifier = Modifier
+            .size(26.dp)
+            .testTag("btn_close_tmux_bar")
+        ) {
+          Icon(Icons.Default.Close, contentDescription = "关闭控制条", tint = Color.Gray, modifier = Modifier.size(15.dp))
+        }
+      }
+
+      Spacer(modifier = Modifier.height(4.dp))
+
+      // Tier 2: Gesture & Pane Controls (Touch scroll toggle, Split panes, Page flip, Zoom)
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        // High-affordance Touch Scrolling & Mouse Support Toggle
+        Box(
+          modifier = Modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isTouchScrollActive) Color(0xFF064E3B) else Slate900)
+            .border(1.dp, if (isTouchScrollActive) EmeraldSuccess else Slate700, RoundedCornerShape(6.dp))
+            .clickable {
+              vibrate()
+              isTouchScrollActive = !isTouchScrollActive
+              if (isTouchScrollActive) {
+                onSendRawInput("tmux set -g mouse on\r")
+                Toast.makeText(context, "已开启触控滚屏：可直接在屏幕上滑滚动历史、点击选屏", Toast.LENGTH_SHORT).show()
+              } else {
+                onSendRawInput("tmux set -g mouse off\r")
+                Toast.makeText(context, "已关闭鼠标触控支持", Toast.LENGTH_SHORT).show()
+              }
+            }
+            .padding(horizontal = 7.dp)
+            .testTag("btn_toggle_mouse_mode"),
+          contentAlignment = Alignment.Center
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+              imageVector = Icons.Default.TouchApp,
+              contentDescription = null,
+              tint = if (isTouchScrollActive) EmeraldSuccess else Color.Gray,
+              modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+              text = if (isTouchScrollActive) "🖱️ 触控滚屏 (开启)" else "🖱️ 触控滚屏 (关闭)",
+              color = if (isTouchScrollActive) Color.White else Color.Gray,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold
+            )
+          }
+        }
+
+        // Section: Visual Pane Splitting (分屏)
         TmuxActionButton(
           label = "⬒ 水平分屏",
           sublabel = "\"",
@@ -244,7 +454,7 @@ fun TmuxControlBar(
         }
 
         TmuxActionButton(
-          label = "🔍 缩放",
+          label = "🔍 缩放窗格",
           sublabel = "z",
           activeColor = EmeraldSuccess,
           tag = "btn_tmux_zoom"
@@ -252,22 +462,25 @@ fun TmuxControlBar(
           sendPrefixCommand("z", "窗格全屏/缩放")
         }
 
-        // Section: Pane Navigation (窗格切换)
-        TmuxNavButton(icon = Icons.Default.KeyboardArrowUp, tag = "btn_tmux_pane_up") {
-          sendPrefixCommand(SpecialKeyHandler.ARROW_UP)
-        }
-        TmuxNavButton(icon = Icons.Default.KeyboardArrowDown, tag = "btn_tmux_pane_down") {
-          sendPrefixCommand(SpecialKeyHandler.ARROW_DOWN)
-        }
-        TmuxNavButton(icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft, tag = "btn_tmux_pane_left") {
-          sendPrefixCommand(SpecialKeyHandler.ARROW_LEFT)
-        }
-        TmuxNavButton(icon = Icons.AutoMirrored.Filled.KeyboardArrowRight, tag = "btn_tmux_pane_right") {
-          sendPrefixCommand(SpecialKeyHandler.ARROW_RIGHT)
+        // Section: Direct Mobile Scrollback & Page navigation
+        TmuxActionButton(
+          label = "▲ 上翻页",
+          tag = "btn_tmux_page_up"
+        ) {
+          vibrate()
+          onSendSpecialKey(SpecialKeyHandler.PAGE_UP)
         }
 
         TmuxActionButton(
-          label = "🔀 轮换",
+          label = "▼ 下翻页",
+          tag = "btn_tmux_page_down"
+        ) {
+          vibrate()
+          onSendSpecialKey(SpecialKeyHandler.PAGE_DOWN)
+        }
+
+        TmuxActionButton(
+          label = "🔀 轮换窗格",
           sublabel = "o",
           tag = "btn_tmux_next_pane"
         ) {
@@ -280,63 +493,10 @@ fun TmuxControlBar(
           activeColor = RoseError,
           tag = "btn_tmux_kill_pane"
         ) {
-          vibrate()
-          // Sends prefix + x + y (confirm close)
-          onSendRawInput(prefix + "x")
+          sendPrefixCommand("x")
         }
 
-        // Section: Window Management (窗口)
-        TmuxActionButton(
-          label = "➕ 新窗口",
-          sublabel = "c",
-          activeColor = CyanAccent,
-          tag = "btn_tmux_new_window"
-        ) {
-          sendPrefixCommand("c", "新建 Tmux 窗口")
-        }
-
-        TmuxActionButton(
-          label = "◀ 上窗口",
-          sublabel = "p",
-          tag = "btn_tmux_prev_window"
-        ) {
-          sendPrefixCommand("p")
-        }
-
-        TmuxActionButton(
-          label = "▶ 下窗口",
-          sublabel = "n",
-          tag = "btn_tmux_next_window"
-        ) {
-          sendPrefixCommand("n")
-        }
-
-        TmuxActionButton(
-          label = "📑 窗口列表",
-          sublabel = "w",
-          tag = "btn_tmux_window_list"
-        ) {
-          sendPrefixCommand("w")
-        }
-
-        TmuxActionButton(
-          label = "🏷️ 命名",
-          sublabel = ",",
-          tag = "btn_tmux_rename_window"
-        ) {
-          sendPrefixCommand(",")
-        }
-
-        // Section: Copy / Scrollback / Session
-        TmuxActionButton(
-          label = "📜 滚屏复制",
-          sublabel = "[",
-          activeColor = Color(0xFF93C5FD),
-          tag = "btn_tmux_copy_mode"
-        ) {
-          sendPrefixCommand("[", "进入滚屏查看模式 (q 退出)")
-        }
-
+        // Session detach
         TmuxActionButton(
           label = "🔌 分离后台",
           sublabel = "d",
@@ -346,18 +506,7 @@ fun TmuxControlBar(
           sendPrefixCommand("d", "已分离后台会话")
         }
 
-        // Quick Attach / New Tmux session
-        TmuxActionButton(
-          label = "⚡ 连接/启动",
-          sublabel = "tmux a",
-          activeColor = EmeraldSuccess,
-          tag = "btn_tmux_attach_or_new"
-        ) {
-          vibrate()
-          onSendRawInput("tmux a || tmux new\r")
-        }
-
-        // Advanced Panel Button
+        // Advanced Tools Dialog
         TmuxActionButton(
           label = "⚙ 更多工具",
           activeColor = Color(0xFFC084FC),
@@ -366,21 +515,81 @@ fun TmuxControlBar(
           vibrate()
           showAdvancedDialog = true
         }
-
-        // Close Bar Button
-        IconButton(
-          onClick = {
-            vibrate()
-            onCloseBar()
-          },
-          modifier = Modifier
-            .size(28.dp)
-            .testTag("btn_close_tmux_bar")
-        ) {
-          Icon(Icons.Default.Close, contentDescription = "关闭 Tmux 控制条", tint = Color.Gray, modifier = Modifier.size(16.dp))
-        }
       }
     }
+  }
+
+  // Dialog: Rename Window (Aligned with external TerminalTabBar rename experience)
+  val winRename = windowToRename
+  if (winRename != null) {
+    var newTitleText by remember(winRename) { mutableStateOf(winRename.title) }
+
+    AlertDialog(
+      onDismissRequest = { windowToRename = null },
+      containerColor = Slate900,
+      titleContentColor = Color.White,
+      textContentColor = Color.White,
+      shape = RoundedCornerShape(14.dp),
+      icon = {
+        Icon(
+          imageVector = Icons.Default.Edit,
+          contentDescription = null,
+          tint = CyanAccent,
+          modifier = Modifier.size(24.dp)
+        )
+      },
+      title = {
+        Text("重命名 Tmux 窗口", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+      },
+      text = {
+        Column {
+          Text(
+            text = "为当前窗口设置更直观的标签名称：",
+            fontSize = 12.sp,
+            color = Color.LightGray
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = newTitleText,
+            onValueChange = { newTitleText = it },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = CyanAccent,
+              unfocusedBorderColor = Color(0xFF475569),
+              focusedTextColor = Color.White,
+              unfocusedTextColor = Color.White,
+              cursorColor = CyanAccent
+            ),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            vibrate()
+            val targetIdx = tmuxWindows.indexOfFirst { it.index == winRename.index }
+            if (targetIdx >= 0) {
+              tmuxWindows[targetIdx] = winRename.copy(title = newTitleText)
+            }
+            // Send rename command to tmux: tmux rename-window '<title>'
+            onSendRawInput("tmux rename-window '${newTitleText.replace("'", "")}'\r")
+            Toast.makeText(context, "已重命名窗口: $newTitleText", Toast.LENGTH_SHORT).show()
+            windowToRename = null
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Text("保存修改", fontWeight = FontWeight.Bold)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { windowToRename = null }) {
+          Text("取消", color = Color.Gray)
+        }
+      }
+    )
   }
 
   // Advanced Tmux Tools Dialog
@@ -410,7 +619,7 @@ fun TmuxControlBar(
             .verticalScroll(rememberScrollState()),
           verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-          Text("🖱️ 鼠标与交互支持", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+          Text("🖱️ 鼠标与触控模式", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -419,6 +628,7 @@ fun TmuxControlBar(
               onClick = {
                 vibrate()
                 onSendRawInput("tmux set -g mouse on\r")
+                isTouchScrollActive = true
                 Toast.makeText(context, "已开启 Tmux 触摸滚动与点击选屏", Toast.LENGTH_SHORT).show()
                 showAdvancedDialog = false
               },
@@ -431,6 +641,7 @@ fun TmuxControlBar(
               onClick = {
                 vibrate()
                 onSendRawInput("tmux set -g mouse off\r")
+                isTouchScrollActive = false
                 Toast.makeText(context, "已关闭鼠标支持", Toast.LENGTH_SHORT).show()
                 showAdvancedDialog = false
               },
@@ -466,7 +677,7 @@ fun TmuxControlBar(
             OutlinedButton(
               onClick = {
                 vibrate()
-                sendPrefixCommand(SpecialKeyHandler.alt('u')) // Resize up
+                sendPrefixCommand(SpecialKeyHandler.alt('u'))
               },
               modifier = Modifier.weight(1f).height(32.dp),
               shape = RoundedCornerShape(6.dp)
@@ -476,7 +687,7 @@ fun TmuxControlBar(
             OutlinedButton(
               onClick = {
                 vibrate()
-                sendPrefixCommand(SpecialKeyHandler.alt('d')) // Resize down
+                sendPrefixCommand(SpecialKeyHandler.alt('d'))
               },
               modifier = Modifier.weight(1f).height(32.dp),
               shape = RoundedCornerShape(6.dp)
@@ -486,7 +697,7 @@ fun TmuxControlBar(
             OutlinedButton(
               onClick = {
                 vibrate()
-                sendPrefixCommand(SpecialKeyHandler.alt('l')) // Resize left
+                sendPrefixCommand(SpecialKeyHandler.alt('l'))
               },
               modifier = Modifier.weight(1f).height(32.dp),
               shape = RoundedCornerShape(6.dp)
@@ -496,7 +707,7 @@ fun TmuxControlBar(
             OutlinedButton(
               onClick = {
                 vibrate()
-                sendPrefixCommand(SpecialKeyHandler.alt('r')) // Resize right
+                sendPrefixCommand(SpecialKeyHandler.alt('r'))
               },
               modifier = Modifier.weight(1f).height(32.dp),
               shape = RoundedCornerShape(6.dp)
@@ -570,7 +781,7 @@ private fun TmuxActionButton(
 ) {
   Box(
     modifier = Modifier
-      .height(30.dp)
+      .height(28.dp)
       .clip(RoundedCornerShape(6.dp))
       .background(Slate900)
       .border(1.dp, Slate800, RoundedCornerShape(6.dp))
@@ -597,25 +808,5 @@ private fun TmuxActionButton(
         )
       }
     }
-  }
-}
-
-@Composable
-private fun TmuxNavButton(
-  icon: androidx.compose.ui.graphics.vector.ImageVector,
-  tag: String,
-  onClick: () -> Unit
-) {
-  Box(
-    modifier = Modifier
-      .size(30.dp)
-      .clip(RoundedCornerShape(6.dp))
-      .background(Slate900)
-      .border(1.dp, Slate800, RoundedCornerShape(6.dp))
-      .clickable(onClick = onClick)
-      .testTag(tag),
-    contentAlignment = Alignment.Center
-  ) {
-    Icon(icon, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
   }
 }
