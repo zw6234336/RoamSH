@@ -208,7 +208,11 @@ class LocalDevSimulationShell(
     val simulatedFiles = listOf("README.md", "package.json", "Cargo.toml", "Dockerfile", "main.py", "tsconfig.json")
     val gitSubcommands = listOf("status", "log", "diff", "add", "commit", "push", "pull", "checkout", "branch")
     val dockerSubcommands = listOf("ps", "images", "run", "stop", "start", "exec", "logs", "compose")
-    val allCommands = listOf("git", "docker", "npm", "cargo", "python3", "htop", "cat", "ls", "cd", "vim", "systemctl", "curl")
+    val agySubcommands = listOf(
+      "--dangerously-skip-permissions", "-c", "--continue", "--mode auto", "--mode plan",
+      "--effort high", "--effort medium", "agent", "agents", "models", "mcp", "plugin", "plugins", "update", "changelog", "--sandbox", "-p"
+    )
+    val allCommands = listOf("agy", "git", "docker", "npm", "cargo", "python3", "htop", "cat", "ls", "cd", "vim", "systemctl", "curl")
 
     val matches = when {
       primaryCommand.isEmpty() -> {
@@ -218,6 +222,13 @@ class LocalDevSimulationShell(
       primaryCommand in listOf("cd", "rmdir") -> {
         simulatedDirs.filter { it.startsWith(token, ignoreCase = true) }
           .map { CandidateItem(it, it, CandidateType.DIRECTORY, isDirectory = true) }
+      }
+      primaryCommand == "agy" -> {
+        agySubcommands.filter { it.startsWith(token, ignoreCase = true) }
+          .map {
+            val isOpt = it.startsWith("-")
+            CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+          }
       }
       primaryCommand == "git" -> {
         gitSubcommands.filter { it.startsWith(token, ignoreCase = true) }

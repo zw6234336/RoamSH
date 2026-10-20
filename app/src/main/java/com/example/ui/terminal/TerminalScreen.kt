@@ -27,6 +27,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Lock
@@ -141,12 +144,26 @@ fun TerminalScreen(
     }
   }
 
-  // Auto scroll to bottom when new terminal output arrives
+  val coroutineScope = rememberCoroutineScope()
+
+  // Auto scroll to bottom when new terminal output arrives (only if autoScroll is active)
   LaunchedEffect(lines.size, lines.lastOrNull()?.plainText, autoScroll) {
     if (autoScroll && lines.isNotEmpty()) {
       try {
         listState.scrollToItem((lines.size - 1).coerceAtLeast(0))
       } catch (_: Throwable) {}
+    }
+  }
+
+  // Automatically pause autoScroll when user scrolls up away from the bottom to read history/AI responses
+  LaunchedEffect(listState.isScrollInProgress) {
+    if (listState.isScrollInProgress) {
+      val isAtBottom = !listState.canScrollForward
+      if (!isAtBottom && autoScroll) {
+        viewModel.setAutoScroll(false)
+      } else if (isAtBottom && !autoScroll) {
+        viewModel.setAutoScroll(true)
+      }
     }
   }
 
@@ -156,13 +173,14 @@ fun TerminalScreen(
   var lastCols by remember { mutableIntStateOf(0) }
   var lastRows by remember { mutableIntStateOf(0) }
 
-  var isLineWrapEnabled by remember { mutableStateOf(false) }
+  // Default to line wrap enabled on mobile devices for optimal readability and vertical scroll ergonomics
+  var isLineWrapEnabled by remember { mutableStateOf(true) }
   val horizontalScrollState = rememberScrollState()
 
   // Auto calculate PTY columns and rows based on screen width/height, font size, and density
   // and dispatch SIGWINCH to remote Linux host so CLIs like agy / top / vim format accurately
-  LaunchedEffect(terminalWidthPx, terminalHeightPx, fontSize, density, connectionState) {
-    if (terminalWidthPx > 0 && terminalHeightPx > 0 && connectionState is SshConnectionState.Connected) {
+  LaunchedEffect(terminalWidthPx, terminalHeightPx, fontSize, density) {
+    if (terminalWidthPx > 0 && terminalHeightPx > 0) {
       val charWidthPx = with(density) { (fontSize * 0.60f).sp.toPx() }
       val charHeightPx = with(density) { (fontSize * 1.18f).sp.toPx() }
       val horizontalPaddingPx = with(density) { 16.dp.toPx() }
@@ -276,30 +294,79 @@ fun TerminalScreen(
         }
       }
 
-      // Scroll lock Floating indicator
+      // Scroll lock Floating indicator & Navigation pills
       if (!autoScroll) {
-        Box(
+        Row(
           modifier = Modifier
             .align(Alignment.BottomEnd)
-            .padding(12.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xCC000000))
-            .clickable { viewModel.setAutoScroll(true) }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(12.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically
         ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = Icons.Default.ArrowDownward,
-              contentDescription = "恢复自动滚动",
-              tint = CyanAccent,
-              modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-              text = "滚屏锁定中 (点击回到底部)",
-              color = Color.White,
-              fontSize = 11.sp
-            )
+          // Jump to Top button
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(20.dp))
+              .background(Color(0xEE1E293B))
+              .clickable {
+                coroutineScope.launch {
+                  try {
+                    listState.animateScrollToItem(0)
+                  } catch (_: Throwable) {
+                    listState.scrollToItem(0)
+                  }
+                }
+              }
+              .padding(horizontal = 10.dp, vertical = 6.dp)
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                imageVector = Icons.Default.ArrowUpward,
+                contentDescription = "回到顶部",
+                tint = CyanAccent,
+                modifier = Modifier.size(15.dp)
+              )
+              Spacer(modifier = Modifier.width(3.dp))
+              Text(
+                text = "回到顶部",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+              )
+            }
+          }
+
+          // Resume Auto-scroll & Jump to Bottom button
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(20.dp))
+              .background(Color(0xEE0F172A))
+              .clickable {
+                viewModel.setAutoScroll(true)
+                coroutineScope.launch {
+                  try {
+                    val lastIdx = (lines.size - 1).coerceAtLeast(0)
+                    listState.animateScrollToItem(lastIdx)
+                  } catch (_: Throwable) {}
+                }
+              }
+              .padding(horizontal = 12.dp, vertical = 6.dp)
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                imageVector = Icons.Default.ArrowDownward,
+                contentDescription = "恢复自动滚动",
+                tint = CyanAccent,
+                modifier = Modifier.size(16.dp)
+              )
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = "回到底部 (恢复滚屏)",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+              )
+            }
           }
         }
       }

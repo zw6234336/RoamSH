@@ -60,15 +60,71 @@ object CommandCompletionEngine {
   ).sorted().distinct()
 
   val SUBCOMMANDS: Map<String, List<String>> = mapOf(
+    "agy" to listOf(
+      "--dangerously-skip-permissions",
+      "-c",
+      "--continue",
+      "--mode auto",
+      "--mode plan",
+      "--effort high",
+      "--effort medium",
+      "agent",
+      "agents",
+      "models",
+      "mcp",
+      "plugin",
+      "plugins",
+      "update",
+      "changelog",
+      "--sandbox",
+      "-p",
+      "-y",
+      "--mode accept-edits",
+      "--effort xhigh",
+      "--effort low",
+      "--model",
+      "--agent",
+      "--conversation"
+    ),
+    "agy mcp" to listOf(
+      "list", "add", "remove", "enable", "disable"
+    ),
+    "agy plugin" to listOf(
+      "list", "install", "uninstall", "enable", "disable", "validate"
+    ),
+    "agy plugins" to listOf(
+      "list", "install", "uninstall", "enable", "disable", "validate"
+    ),
+    "agy agent" to listOf(
+      "list"
+    ),
+    "agy agents" to listOf(
+      "list"
+    ),
+    "claude" to listOf(
+      "--dangerously-skip-permissions", "-p", "--model", "--continue", "mcp", "config"
+    ),
+    "aider" to listOf(
+      "--model", "--deepseek", "--sonnet", "--yes", "--no-git", "--browser"
+    ),
     "git" to listOf(
       "status", "log", "diff", "add", "commit", "push", "pull", "fetch",
       "checkout", "branch", "merge", "rebase", "stash", "clone", "reset",
       "remote", "tag", "cherry-pick", "switch", "restore", "show", "init"
     ),
+    "git remote" to listOf(
+      "-v", "add", "remove", "rename", "set-url", "show", "prune"
+    ),
+    "git stash" to listOf(
+      "pop", "list", "apply", "drop", "save", "clear", "show"
+    ),
     "docker" to listOf(
       "ps", "images", "run", "stop", "start", "restart", "exec", "logs",
       "compose", "build", "rm", "rmi", "pull", "push", "inspect", "network",
       "volume", "stats", "system"
+    ),
+    "docker compose" to listOf(
+      "up", "down", "ps", "logs", "build", "restart", "stop", "exec", "pull"
     ),
     "docker-compose" to listOf(
       "up", "down", "ps", "logs", "build", "restart", "stop", "exec", "pull"
@@ -115,8 +171,6 @@ object CommandCompletionEngine {
     "tar" to listOf("-zxvf", "-zcvf", "-xvf", "-cvf", "-jxvf")
   )
 
-
-
   /**
    * Extract potential filenames, paths, and identifiers from recent terminal screen buffer.
    */
@@ -138,6 +192,82 @@ object CommandCompletionEngine {
   }
 
   /**
+   * Real-time candidate suggestions as the user types in the input box.
+   */
+  fun getQuickSuggestions(
+    input: String,
+    terminalLines: List<String> = emptyList()
+  ): List<CandidateItem> {
+    val trimmed = input.trimStart()
+    if (trimmed.isEmpty()) return emptyList()
+
+    val lastSpace = trimmed.lastIndexOf(' ')
+    val currentToken = if (lastSpace >= 0) trimmed.substring(lastSpace + 1) else trimmed
+
+    // Case 1: First word (command or command being typed)
+    if (lastSpace < 0) {
+      val exact = ALL_COMMANDS.firstOrNull { it.equals(trimmed, ignoreCase = true) }
+      if (exact != null && SUBCOMMANDS.containsKey(exact)) {
+        // Exact command typed like "agy"! Immediately show commonly used subcommands / options!
+        val subList = SUBCOMMANDS[exact] ?: emptyList()
+        return subList.map {
+          val isOpt = it.startsWith("-")
+          CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+        }
+      }
+
+      // Partial command (e.g. "ag", "git", "doc")
+      val matchingCmds = ALL_COMMANDS
+        .filter { it.startsWith(trimmed, ignoreCase = true) }
+        .take(15)
+        .map { CandidateItem(it, it, CandidateType.COMMAND) }
+
+      if (matchingCmds.isNotEmpty()) {
+        return matchingCmds
+      }
+      return emptyList()
+    }
+
+    // Case 2: Subcommand or options after command (e.g. "agy ", "agy -", "agy mcp ")
+    val commandLineBeforeToken = trimmed.substring(0, lastSpace).trim()
+    val commandTokens = commandLineBeforeToken.split(" ").filter { it.isNotBlank() }
+    val primaryCommand = commandTokens.firstOrNull()?.lowercase() ?: ""
+    val subKey = if (commandTokens.size >= 2) "${commandTokens[0]} ${commandTokens[1]}".lowercase() else primaryCommand
+
+    val subList = SUBCOMMANDS[subKey] ?: SUBCOMMANDS[primaryCommand]
+    if (subList != null) {
+      val matches = if (currentToken.isEmpty()) {
+        subList
+      } else {
+        subList.filter { it.startsWith(currentToken, ignoreCase = true) }
+      }
+      if (matches.isNotEmpty()) {
+        return matches.take(20).map {
+          val isOpt = it.startsWith("-")
+          CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+        }
+      }
+    }
+
+    // Fallback: match from terminal words if typing a file/path argument
+    if (currentToken.isNotEmpty()) {
+      val terminalWords = extractWordsFromTerminal(terminalLines)
+      val pathMatches = terminalWords
+        .filter { it.startsWith(currentToken, ignoreCase = true) }
+        .take(10)
+        .map {
+          val isDir = it.endsWith("/")
+          CandidateItem(it, it, if (isDir) CandidateType.DIRECTORY else CandidateType.FILE, isDir)
+        }
+      if (pathMatches.isNotEmpty()) {
+        return pathMatches
+      }
+    }
+
+    return emptyList()
+  }
+
+  /**
    * Performs in-place completion directly inside TextFieldValue with support for cycleIndex.
    */
   fun complete(
@@ -149,18 +279,18 @@ object CommandCompletionEngine {
     val cursor = currentValue.selection.end.coerceIn(0, text.length)
 
     if (text.isBlank()) {
-      // For empty input, return top common Linux commands as quick candidate suggestions
+      // For empty input, return top common Linux & AI commands as quick candidate suggestions
       val quickStart = listOf(
+        CandidateItem("agy --dangerously-skip-permissions", "agy --dangerously-skip-permissions", CandidateType.COMMAND),
+        CandidateItem("agy -c", "agy -c", CandidateType.COMMAND),
         CandidateItem("ls -la", "ls -la", CandidateType.COMMAND),
         CandidateItem("cd ", "cd", CandidateType.COMMAND),
         CandidateItem("git status", "git status", CandidateType.COMMAND),
         CandidateItem("docker ps", "docker ps", CandidateType.COMMAND),
         CandidateItem("systemctl status ", "systemctl status", CandidateType.COMMAND),
         CandidateItem("htop", "htop", CandidateType.COMMAND),
-        CandidateItem("cat ", "cat", CandidateType.COMMAND),
         CandidateItem("tail -f ", "tail -f", CandidateType.COMMAND),
-        CandidateItem("df -h", "df -h", CandidateType.COMMAND),
-        CandidateItem("free -m", "free -m", CandidateType.COMMAND)
+        CandidateItem("df -h", "df -h", CandidateType.COMMAND)
       )
       val chosen = quickStart[cycleIndex % quickStart.size]
       val newTfv = TextFieldValue(chosen.text, TextRange(chosen.text.length))
@@ -188,9 +318,32 @@ object CommandCompletionEngine {
         return completePath(currentValue, tokenStartIndex, currentToken, textAfterCursor, terminalWords, cycleIndex)
       }
 
+      val exactCommand = ALL_COMMANDS.firstOrNull { it.equals(currentToken, ignoreCase = true) }
+      val subList = if (exactCommand != null) SUBCOMMANDS[exactCommand] else null
+
       val matches = ALL_COMMANDS
         .filter { it.startsWith(currentToken, ignoreCase = true) }
         .map { CandidateItem(it, it, CandidateType.COMMAND) }
+
+      // If user typed the exact command (like "agy") and has registered subcommands,
+      // completing should insert "agy " and immediately show the commonly used subcommands/options!
+      if (matches.size == 1 && exactCommand != null && subList != null) {
+        val replacement = exactCommand + " "
+        val newText = replacement + textAfterCursor
+        val newCursor = replacement.length
+        val newTfv = TextFieldValue(newText, TextRange(newCursor))
+        val subCandidates = subList.map {
+          val isOpt = it.startsWith("-")
+          CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+        }
+        return CompletionResult(
+          newTextFieldValue = newTfv,
+          candidates = subCandidates,
+          isSingleExactMatch = true,
+          completedToken = exactCommand,
+          feedbackMessage = "已补全: $exactCommand (常用指令/选项已推荐)"
+        )
+      }
 
       return buildResult(currentValue, tokenStartIndex, currentToken, textAfterCursor, matches, cycleIndex)
     }
@@ -199,6 +352,7 @@ object CommandCompletionEngine {
     val commandLineBeforeToken = prefixBeforeCursor.substring(0, lastSpaceIndex).trim()
     val commandTokens = commandLineBeforeToken.split(" ").filter { it.isNotBlank() }
     val primaryCommand = commandTokens.firstOrNull()?.lowercase() ?: ""
+    val subKey = if (commandTokens.size >= 2) "${commandTokens[0]} ${commandTokens[1]}".lowercase() else primaryCommand
 
     // Check if user is typing a path (starts with / or ~ or ./)
     if (currentToken.startsWith("/") || currentToken.startsWith("~") || currentToken.startsWith("./") || currentToken.startsWith("../")) {
@@ -217,12 +371,15 @@ object CommandCompletionEngine {
       }
     }
 
-    // Check subcommand matches if this tool has registered subcommands
-    val subList = SUBCOMMANDS[primaryCommand]
-    if (subList != null && commandTokens.size == 1) {
+    // Check subcommand & options matches
+    val subList = SUBCOMMANDS[subKey] ?: SUBCOMMANDS[primaryCommand]
+    if (subList != null) {
       val matches = subList
         .filter { it.startsWith(currentToken, ignoreCase = true) }
-        .map { CandidateItem(it, it, CandidateType.SUBCOMMAND) }
+        .map {
+          val isOpt = it.startsWith("-")
+          CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+        }
 
       if (matches.isNotEmpty()) {
         return buildResult(currentValue, tokenStartIndex, currentToken, textAfterCursor, matches, cycleIndex)
@@ -242,10 +399,13 @@ object CommandCompletionEngine {
     }
 
     // General fallback: match any subcommands or terminal words
-    val generalCandidates = (terminalWords + (SUBCOMMANDS[primaryCommand] ?: emptyList())).distinct()
+    val generalCandidates = (terminalWords + (subList ?: emptyList())).distinct()
     val generalMatches = generalCandidates
       .filter { it.startsWith(currentToken, ignoreCase = true) }
-      .map { CandidateItem(it, it, CandidateType.OPTION) }
+      .map {
+        val isOpt = it.startsWith("-")
+        CandidateItem(it, it, if (isOpt) CandidateType.OPTION else CandidateType.SUBCOMMAND)
+      }
 
     return buildResult(currentValue, tokenStartIndex, currentToken, textAfterCursor, generalMatches, cycleIndex)
   }
@@ -346,6 +506,17 @@ object CommandCompletionEngine {
 
     val suffix = if (candidate.isDirectory || candidate.text.endsWith('/')) "" else " "
     val replacement = candidate.text + suffix
+
+    // Special case: If user typed an exact command without trailing space (e.g. "agy")
+    // and clicked a subcommand/option chip (e.g. "--dangerously-skip-permissions"),
+    // append the candidate instead of overwriting the command!
+    if (tokenStartIndex == 0 && candidate.type in listOf(CandidateType.SUBCOMMAND, CandidateType.OPTION)) {
+      val trimmedCmd = prefixBeforeCursor.trimEnd()
+      val newText = "$trimmedCmd $replacement$textAfterCursor"
+      val newCursor = "$trimmedCmd $replacement".length
+      return TextFieldValue(newText, TextRange(newCursor))
+    }
+
     val newText = text.substring(0, tokenStartIndex) + replacement + textAfterCursor
     val newCursor = tokenStartIndex + replacement.length
     return TextFieldValue(newText, TextRange(newCursor))

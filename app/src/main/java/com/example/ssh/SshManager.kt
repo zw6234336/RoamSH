@@ -292,6 +292,7 @@ class SshManager(
   }
 
   fun resizeTerminal(cols: Int, rows: Int, width: Int, height: Int) {
+    terminalParser.resize(cols, rows)
     scope.launch(Dispatchers.IO) {
       try {
         shellChannel?.setPtySize(
@@ -355,6 +356,9 @@ class SshManager(
           primaryCommand == "systemctl" -> {
             "compgen -W \"status restart start stop reload enable disable daemon-reload is-active is-enabled list-units\" -- \"$safeToken\" 2>/dev/null | head -n 25"
           }
+          primaryCommand == "agy" -> {
+            "compgen -W \"--dangerously-skip-permissions -c --continue --mode --effort agent agents models mcp plugin plugins update changelog --sandbox -p -y\" -- \"$safeToken\" 2>/dev/null | head -n 25"
+          }
           else -> {
             "cd \"$safeCwd\" 2>/dev/null; for f in \$(compgen -f -- \"$safeToken\" 2>/dev/null); do if [ -d \"\$f\" ]; then echo \"\$f/\"; else echo \"\$f\"; fi; done | head -n 40"
           }
@@ -379,7 +383,9 @@ class SshManager(
             val type = when {
               isDir -> CandidateType.DIRECTORY
               primaryCommand.isEmpty() -> CandidateType.COMMAND
-              primaryCommand in listOf("git", "docker", "systemctl") && !text.contains('/') -> CandidateType.SUBCOMMAND
+              primaryCommand in listOf("git", "docker", "systemctl", "agy") && !text.contains('/') -> {
+                if (text.startsWith("-")) CandidateType.OPTION else CandidateType.SUBCOMMAND
+              }
               else -> CandidateType.FILE
             }
             CandidateItem(

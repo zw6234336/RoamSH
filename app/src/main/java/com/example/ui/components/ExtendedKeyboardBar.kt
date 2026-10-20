@@ -716,6 +716,7 @@ fun ExtendedKeyboardBar(
                 CandidateType.DIRECTORY -> "📁" to Color(0xFF1E3A8A)
                 CandidateType.FILE -> "📄" to Color(0xFF1F2937)
                 CandidateType.SUBCOMMAND -> "⚡" to Color(0xFF065F46)
+                CandidateType.OPTION -> "⚙" to Color(0xFF0F766E)
                 CandidateType.COMMAND -> "▶" to Color(0xFF312E81)
                 else -> "•" to Color(0xFF1E293B)
               }
@@ -726,8 +727,12 @@ fun ExtendedKeyboardBar(
                   .background(chipBg)
                   .clickable {
                     vibrate()
-                    textFieldValue = CommandCompletionEngine.applyCandidate(textFieldValue, candidate)
-                    candidateSuggestions = emptyList()
+                    val newTfv = CommandCompletionEngine.applyCandidate(textFieldValue, candidate)
+                    textFieldValue = newTfv
+                    candidateSuggestions = CommandCompletionEngine.getQuickSuggestions(
+                      input = newTfv.text,
+                      terminalLines = terminalLines
+                    )
                   }
                   .padding(horizontal = 7.dp, vertical = 3.dp)
               ) {
@@ -849,6 +854,11 @@ fun ExtendedKeyboardBar(
                 textFieldValue = newValue
                 if (newValue.text.isEmpty()) {
                   candidateSuggestions = emptyList()
+                } else {
+                  candidateSuggestions = CommandCompletionEngine.getQuickSuggestions(
+                    input = newValue.text,
+                    terminalLines = terminalLines
+                  )
                 }
               },
               singleLine = true,

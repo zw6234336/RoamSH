@@ -298,25 +298,22 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
     val remoteCandidates = sshManager.queryLinuxCompletions(prefixBeforeCursor, cwd)
 
     // 2. If remote returns results, use them directly (100% real Linux completions)
-    val matches = if (remoteCandidates.isNotEmpty()) {
-      remoteCandidates
-    } else {
-      // Fallback: extract words from recent terminal screen buffer
-      val terminalPlainLines = sshManager.terminalParser.lines.value.map { it.plainText }
-      val terminalWords = CommandCompletionEngine.extractWordsFromTerminal(terminalPlainLines)
-      terminalWords.filter { it.startsWith(currentToken, ignoreCase = true) }
-        .map {
-          val isDir = it.endsWith('/')
-          CandidateItem(it, it, if (isDir) CandidateType.DIRECTORY else CandidateType.FILE, isDirectory = isDir)
-        }
+    if (remoteCandidates.isNotEmpty()) {
+      return CommandCompletionEngine.buildResult(
+        currentValue = currentValue,
+        tokenStartIndex = tokenStartIndex,
+        currentToken = currentToken,
+        textAfterCursor = textAfterCursor,
+        matches = remoteCandidates,
+        cycleIndex = cycleIndex
+      )
     }
 
-    return CommandCompletionEngine.buildResult(
+    // 3. Fallback: Full CommandCompletionEngine completion (covers agy, developer tools, subcommands & terminal words)
+    val terminalPlainLines = sshManager.terminalParser.lines.value.map { it.plainText }
+    return CommandCompletionEngine.complete(
       currentValue = currentValue,
-      tokenStartIndex = tokenStartIndex,
-      currentToken = currentToken,
-      textAfterCursor = textAfterCursor,
-      matches = matches,
+      recentTerminalLines = terminalPlainLines,
       cycleIndex = cycleIndex
     )
   }

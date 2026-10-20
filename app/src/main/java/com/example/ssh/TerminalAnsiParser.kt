@@ -129,6 +129,16 @@ class TerminalAnsiParser(
   private val _lines = MutableStateFlow<List<TerminalLine>>(emptyList())
   val lines: StateFlow<List<TerminalLine>> = _lines.asStateFlow()
 
+  // Terminal active screen grid dimensions (updated by SIGWINCH)
+  var cols: Int = 80
+    private set
+  var rows: Int = 24
+    private set
+
+  // Scrolling region (DECSTBM): top and bottom margin (0-indexed within screen)
+  private var scrollTopMargin = 0
+  private var scrollBottomMargin = 23
+
   // Character cell line buffer
   private val linesList = mutableListOf<LineBuffer>().apply {
     add(LineBuffer())
@@ -136,7 +146,7 @@ class TerminalAnsiParser(
   private var cursorRow = 0
   private var cursorCol = 0
 
-  // Saved cursor for ESC 7/8 or CSI s/u
+  // Saved cursor relative to screen (for ESC 7/8 or CSI s/u)
   private var savedRow = 0
   private var savedCol = 0
 
@@ -150,6 +160,19 @@ class TerminalAnsiParser(
   private var currentBg: Color? = null
   private var isBold = false
   private var isUnderline = false
+
+  fun resize(cols: Int, rows: Int) {
+    lock.withLock {
+      if (cols > 0 && rows > 0) {
+        this.cols = cols
+        this.rows = rows
+        scrollTopMargin = 0
+        scrollBottomMargin = rows - 1
+      }
+    }
+  }
+
+  private fun getScreenBaseRow(): Int = (linesList.size - rows).coerceAtLeast(0)
 
   fun setTheme(newTheme: TerminalColorScheme) {
     lock.withLock {
@@ -175,18 +198,32 @@ class TerminalAnsiParser(
     val text = textBuffer.toString()
     textBuffer.setLength(0)
 
-    while (cursorRow >= linesList.size) {
-      linesList.add(LineBuffer())
+    val maxCols = cols.coerceAtLeast(10)
+    var textIdx = 0
+    while (textIdx < text.length) {
+      while (cursorRow >= linesList.size) {
+        linesList.add(LineBuffer())
+      }
+      val lineBuffer = linesList[cursorRow]
+
+      val spaceOnLine = maxCols - cursorCol
+      if (spaceOnLine <= 0) {
+        advanceNewline()
+        continue
+      }
+
+      val chunkLen = minOf(spaceOnLine, text.length - textIdx)
+      val chunk = text.substring(textIdx, textIdx + chunkLen)
+      cursorCol = lineBuffer.write(
+        col = cursorCol,
+        text = chunk,
+        fg = currentFg,
+        bg = currentBg,
+        bold = isBold,
+        underline = isUnderline
+      )
+      textIdx += chunkLen
     }
-    val lineBuffer = linesList[cursorRow]
-    cursorCol = lineBuffer.write(
-      col = cursorCol,
-      text = text,
-      fg = currentFg,
-      bg = currentBg,
-      bold = isBold,
-      underline = isUnderline
-    )
   }
 
   fun feed(input: String) {
@@ -254,13 +291,19 @@ class TerminalAnsiParser(
                   i += 2
                 }
                 '7' -> { // DECSC: Save cursor
-                  savedRow = cursorRow
+                  val baseRow = getScreenBaseRow()
+                  savedRow = cursorRow - baseRow
                   savedCol = cursorCol
                   i++
                 }
                 '8' -> { // DECRC: Restore cursor
-                  cursorRow = savedRow.coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
-                  cursorCol = savedCol
+                  val baseRow = getScreenBaseRow()
+                  val targetRow = baseRow + savedRow.coerceIn(0, rows - 1)
+                  while (linesList.size <= targetRow) {
+                    linesList.add(LineBuffer())
+                  }
+                  cursorRow = targetRow
+                  cursorCol = savedCol.coerceAtLeast(0)
                   i++
                 }
                 else -> {
@@ -303,35 +346,65 @@ class TerminalAnsiParser(
     when (terminator) {
       'A' -> { // Cursor Up: \e[nA
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        cursorRow = (cursorRow - n).coerceAtLeast(0)
+        val baseRow = getScreenBaseRow()
+        cursorRow = (cursorRow - n).coerceAtLeast(baseRow)
       }
       'B' -> { // Cursor Down: \e[nB
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val baseRow = getScreenBaseRow()
+        val maxRow = baseRow + rows - 1
         while (linesList.size <= cursorRow + n) {
           linesList.add(LineBuffer())
         }
-        cursorRow = (cursorRow + n).coerceAtMost(linesList.size - 1)
+        cursorRow = (cursorRow + n).coerceAtMost(maxOf(linesList.size - 1, maxRow))
       }
-      'C' -> { // Cursor Forward: \e[nC
+      'C', 'a' -> { // Cursor Forward: \e[nC or \e[na
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        cursorCol += n
+        cursorCol = (cursorCol + n).coerceAtMost(cols - 1)
       }
       'D' -> { // Cursor Back: \e[nD
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
         cursorCol = (cursorCol - n).coerceAtLeast(0)
       }
+      'E' -> { // Cursor Next Line: \e[nE
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val baseRow = getScreenBaseRow()
+        val maxRow = baseRow + rows - 1
+        while (linesList.size <= cursorRow + n) {
+          linesList.add(LineBuffer())
+        }
+        cursorRow = (cursorRow + n).coerceAtMost(maxOf(linesList.size - 1, maxRow))
+        cursorCol = 0
+      }
+      'F' -> { // Cursor Previous Line: \e[nF
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val baseRow = getScreenBaseRow()
+        cursorRow = (cursorRow - n).coerceAtLeast(baseRow)
+        cursorCol = 0
+      }
       'G' -> { // Cursor Column Absolute: \e[nG
         val n = (params.toIntOrNull() ?: 1) - 1
-        cursorCol = n.coerceAtLeast(0)
+        cursorCol = n.coerceIn(0, cols - 1)
+      }
+      'd' -> { // Line Position Absolute: \e[nd
+        val n = (params.toIntOrNull() ?: 1) - 1
+        val baseRow = getScreenBaseRow()
+        val targetRow = baseRow + n.coerceIn(0, rows - 1)
+        while (linesList.size <= targetRow) {
+          linesList.add(LineBuffer())
+        }
+        cursorRow = targetRow
       }
       'H', 'f' -> { // Cursor Position: \e[y;xH
         val parts = params.split(';')
         val r = (parts.getOrNull(0)?.toIntOrNull() ?: 1) - 1
         val c = (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1
-        while (linesList.size <= r) {
+        val baseRow = getScreenBaseRow()
+        val targetRow = baseRow + r.coerceIn(0, rows - 1)
+        while (linesList.size <= targetRow) {
           linesList.add(LineBuffer())
         }
-        cursorRow = r.coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
+        cursorRow = targetRow
         cursorCol = c.coerceAtLeast(0)
       }
       'K' -> { // Erase in line: \e[2K (entire line), \e[1K (start to cursor), \e[0K / \e[K (cursor to end)
@@ -343,21 +416,101 @@ class TerminalAnsiParser(
           }
         }
       }
-      'J' -> { // Clear display: \e[2J, \e[3J
+      'J' -> { // Clear display: \e[0J, \e[1J, \e[2J, \e[3J
         val code = params.toIntOrNull() ?: 0
-        if (code == 2 || code == 3) {
-          linesList.clear()
-          linesList.add(LineBuffer())
-          cursorRow = 0
-          cursorCol = 0
-        } else if (code == 0) {
-          if (cursorRow < linesList.size) {
-            linesList[cursorRow].clearFrom(cursorCol)
-            while (linesList.size > cursorRow + 1) {
-              linesList.removeAt(linesList.size - 1)
+        val baseRow = getScreenBaseRow()
+        when (code) {
+          3 -> { // Erase saved lines (xterm scrollback clear)
+            linesList.clear()
+            linesList.add(LineBuffer())
+            cursorRow = 0
+            cursorCol = 0
+          }
+          2 -> { // Clear active visible screen without wiping previous scrollback history
+            val endRow = minOf(linesList.size - 1, baseRow + rows - 1)
+            for (r in baseRow..endRow) {
+              linesList[r].clear()
+            }
+            cursorRow = baseRow
+            cursorCol = 0
+          }
+          1 -> { // Erase from beginning of screen to cursor
+            for (r in baseRow until cursorRow) {
+              if (r < linesList.size) linesList[r].clear()
+            }
+            if (cursorRow < linesList.size) {
+              linesList[cursorRow].clearTo(cursorCol)
+            }
+          }
+          else -> { // Erase from cursor to end of screen
+            if (cursorRow < linesList.size) {
+              linesList[cursorRow].clearFrom(cursorCol)
+            }
+            val endRow = minOf(linesList.size - 1, baseRow + rows - 1)
+            for (r in (cursorRow + 1)..endRow) {
+              linesList[r].clear()
             }
           }
         }
+      }
+      'X' -> { // Erase characters: \e[nX
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        if (cursorRow < linesList.size) {
+          for (c in 0 until n) {
+            linesList[cursorRow].write(
+              col = cursorCol + c,
+              text = " ",
+              fg = null,
+              bg = null,
+              bold = false,
+              underline = false
+            )
+          }
+        }
+      }
+      'L' -> { // Insert Line: \e[nL
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val insertAt = cursorRow.coerceIn(0, linesList.size)
+        for (k in 0 until n) {
+          linesList.add(insertAt, LineBuffer())
+        }
+        cursorCol = 0
+      }
+      'M' -> { // Delete Line: \e[nM
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val baseRow = getScreenBaseRow()
+        val maxRow = minOf(linesList.size - 1, baseRow + rows - 1)
+        for (k in 0 until n) {
+          if (cursorRow <= maxRow && cursorRow < linesList.size) {
+            linesList.removeAt(cursorRow)
+            linesList.add(maxRow.coerceIn(0, linesList.size), LineBuffer())
+          }
+        }
+        cursorCol = 0
+      }
+      'S' -> { // Scroll Up: \e[nS
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        for (k in 0 until n) {
+          advanceNewline()
+        }
+      }
+      'T' -> { // Scroll Down: \e[nT
+        val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val baseRow = getScreenBaseRow()
+        val insertAt = (baseRow + scrollTopMargin).coerceIn(0, linesList.size)
+        for (k in 0 until n) {
+          linesList.add(insertAt, LineBuffer())
+        }
+      }
+      'r' -> { // Set Scrolling Region: \e[top;bottomr
+        val parts = params.split(';')
+        val top = (parts.getOrNull(0)?.toIntOrNull() ?: 1) - 1
+        val bottom = (parts.getOrNull(1)?.toIntOrNull() ?: rows) - 1
+        scrollTopMargin = top.coerceIn(0, rows - 1)
+        scrollBottomMargin = bottom.coerceIn(scrollTopMargin, rows - 1)
+        val baseRow = getScreenBaseRow()
+        cursorRow = (baseRow + scrollTopMargin).coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
+        cursorCol = 0
       }
       'h' -> { // Private mode: \e[?1049h (Alternate screen buffer)
         if (params == "?1049" || params == "?47") {
@@ -382,12 +535,18 @@ class TerminalAnsiParser(
         }
       }
       's' -> { // Save cursor: \e[s
-        savedRow = cursorRow
+        val baseRow = getScreenBaseRow()
+        savedRow = cursorRow - baseRow
         savedCol = cursorCol
       }
       'u' -> { // Restore cursor: \e[u
-        cursorRow = savedRow.coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
-        cursorCol = savedCol
+        val baseRow = getScreenBaseRow()
+        val targetRow = baseRow + savedRow.coerceIn(0, rows - 1)
+        while (linesList.size <= targetRow) {
+          linesList.add(LineBuffer())
+        }
+        cursorRow = targetRow
+        cursorCol = savedCol.coerceAtLeast(0)
       }
       'm' -> { // SGR - Graphics rendition (colors, styling)
         if (params.isEmpty()) {
