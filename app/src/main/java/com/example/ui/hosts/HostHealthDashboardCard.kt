@@ -65,6 +65,9 @@ fun HostHealthDashboardCard(
   hosts: List<HostConfig>,
   healthMap: Map<String, HostHealthMetrics>,
   isProbing: Boolean,
+  isAutoRefreshEnabled: Boolean = true,
+  autoRefreshIntervalSeconds: Int = 10,
+  onToggleAutoRefresh: () -> Unit = {},
   onProbeAll: () -> Unit,
   onSelectHostHealth: (HostConfig) -> Unit,
   modifier: Modifier = Modifier
@@ -171,6 +174,31 @@ fun HostHealthDashboardCard(
               Text(
                 text = "$onlineCount/${hosts.size} 在线",
                 color = if (onlineCount > 0) EmeraldSuccess else Color.LightGray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+              )
+            }
+          }
+
+          // Auto-refresh status badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(if (isAutoRefreshEnabled) Color(0xFF064E3B).copy(alpha = 0.5f) else Slate800)
+              .clickable { onToggleAutoRefresh() }
+              .padding(horizontal = 6.dp, vertical = 3.dp)
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Box(
+                modifier = Modifier
+                  .size(6.dp)
+                  .clip(CircleShape)
+                  .background(if (isAutoRefreshEnabled) EmeraldSuccess else Color.Gray)
+              )
+              Spacer(modifier = Modifier.width(3.dp))
+              Text(
+                text = if (isAutoRefreshEnabled) "自动 ${autoRefreshIntervalSeconds}s" else "暂停",
+                color = if (isAutoRefreshEnabled) EmeraldSuccess else Color.Gray,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
               )

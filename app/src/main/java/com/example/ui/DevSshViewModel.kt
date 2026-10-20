@@ -37,6 +37,7 @@ import com.example.data.model.HostHealthMetrics
 import com.example.ssh.HostHealthProber
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 
 enum class AppScreen {
@@ -132,6 +133,21 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   private val _isGlobalProbing = MutableStateFlow(false)
   val isGlobalProbing: StateFlow<Boolean> = _isGlobalProbing.asStateFlow()
 
+  // Auto-refresh control for health dashboard
+  private val _isHealthAutoRefreshEnabled = MutableStateFlow(true)
+  val isHealthAutoRefreshEnabled: StateFlow<Boolean> = _isHealthAutoRefreshEnabled.asStateFlow()
+
+  private val _healthRefreshIntervalSeconds = MutableStateFlow(10)
+  val healthRefreshIntervalSeconds: StateFlow<Int> = _healthRefreshIntervalSeconds.asStateFlow()
+
+  fun toggleHealthAutoRefresh() {
+    _isHealthAutoRefreshEnabled.value = !_isHealthAutoRefreshEnabled.value
+  }
+
+  fun setHealthRefreshInterval(seconds: Int) {
+    _healthRefreshIntervalSeconds.value = seconds.coerceIn(5, 60)
+  }
+
   // Editing state
   private val _selectedHostForEdit = MutableStateFlow<HostConfig?>(null)
   val selectedHostForEdit: StateFlow<HostConfig?> = _selectedHostForEdit.asStateFlow()
@@ -149,6 +165,19 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
       allHosts.collect { hosts ->
         if (hosts.isNotEmpty() && _hostHealthMap.value.isEmpty()) {
           probeAllHostsHealth()
+        }
+      }
+    }
+    // Periodic auto-refresh loop for health dashboard
+    viewModelScope.launch {
+      while (true) {
+        delay(1000)
+        if (_isHealthAutoRefreshEnabled.value && _currentScreen.value == AppScreen.HOSTS) {
+          val intervalMs = _healthRefreshIntervalSeconds.value * 1000L
+          delay(intervalMs)
+          if (_isHealthAutoRefreshEnabled.value && _currentScreen.value == AppScreen.HOSTS && !_isGlobalProbing.value && allHosts.value.isNotEmpty()) {
+            probeAllHostsHealth()
+          }
         }
       }
     }

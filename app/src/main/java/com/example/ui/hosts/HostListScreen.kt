@@ -95,6 +95,8 @@ fun HostListScreen(
   val sessions by viewModel.sessions.collectAsState()
   val healthMap by viewModel.hostHealthMap.collectAsState()
   val isProbingAll by viewModel.isGlobalProbing.collectAsState()
+  val isAutoRefresh by viewModel.isHealthAutoRefreshEnabled.collectAsState()
+  val refreshInterval by viewModel.healthRefreshIntervalSeconds.collectAsState()
 
   var searchQuery by remember { mutableStateOf("") }
   var selectedTag by remember { mutableStateOf("全部") }
@@ -201,6 +203,9 @@ fun HostListScreen(
           hosts = hosts,
           healthMap = healthMap,
           isProbing = isProbingAll,
+          isAutoRefreshEnabled = isAutoRefresh,
+          autoRefreshIntervalSeconds = refreshInterval,
+          onToggleAutoRefresh = { viewModel.toggleHealthAutoRefresh() },
           onProbeAll = { viewModel.probeAllHostsHealth() },
           onSelectHostHealth = { hostForHealthDetail = it }
         )

@@ -83,6 +83,14 @@ fun HostHealthDetailDialog(
   val context = LocalContext.current
   val metrics = health ?: HostHealthMetrics(hostId = host.id)
 
+  // Auto-refresh while detail dialog is open (every 5 seconds)
+  androidx.compose.runtime.LaunchedEffect(host.id) {
+    while (true) {
+      kotlinx.coroutines.delay(5000L)
+      onRefresh()
+    }
+  }
+
   val infiniteTransition = rememberInfiniteTransition(label = "spin")
   val angle by infiniteTransition.animateFloat(
     initialValue = 0f,
@@ -160,12 +168,20 @@ fun HostHealthDetailDialog(
                 }
               }
             }
-            Text(
-              text = "${host.username}@${host.host}:${host.port}",
-              color = Color.Gray,
-              fontSize = 11.sp,
-              fontFamily = FontFamily.Monospace
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Text(
+                text = "${host.username}@${host.host}:${host.port}",
+                color = Color.Gray,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = "• 实时5s刷新",
+                color = EmeraldSuccess,
+                fontSize = 10.sp
+              )
+            }
           }
         }
 
