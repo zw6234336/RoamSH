@@ -156,12 +156,12 @@ fun HostHealthDashboardCard(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-          // Online badge
+          // Online + Latency badge
           Box(
             modifier = Modifier
               .clip(RoundedCornerShape(6.dp))
               .background(if (onlineCount > 0) EmeraldSuccess.copy(alpha = 0.15f) else Slate800)
-              .padding(horizontal = 7.dp, vertical = 3.dp)
+              .padding(horizontal = 6.dp, vertical = 3.dp)
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Box(
@@ -172,7 +172,7 @@ fun HostHealthDashboardCard(
               )
               Spacer(modifier = Modifier.width(4.dp))
               Text(
-                text = "$onlineCount/${hosts.size} 在线",
+                text = "$onlineCount/${hosts.size}" + (if (avgLatency != null) " • ${avgLatency}ms" else ""),
                 color = if (onlineCount > 0) EmeraldSuccess else Color.LightGray,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
@@ -197,25 +197,8 @@ fun HostHealthDashboardCard(
               )
               Spacer(modifier = Modifier.width(3.dp))
               Text(
-                text = if (isAutoRefreshEnabled) "自动 ${autoRefreshIntervalSeconds}s" else "暂停",
+                text = if (isAutoRefreshEnabled) "自动 ${autoRefreshIntervalSeconds}s" else "已暂停",
                 color = if (isAutoRefreshEnabled) EmeraldSuccess else Color.Gray,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-              )
-            }
-          }
-
-          // Avg Latency badge
-          if (avgLatency != null) {
-            Box(
-              modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(Slate800)
-                .padding(horizontal = 6.dp, vertical = 3.dp)
-            ) {
-              Text(
-                text = "${avgLatency}ms",
-                color = CyanAccent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
               )
@@ -226,20 +209,20 @@ fun HostHealthDashboardCard(
           OutlinedButton(
             onClick = onProbeAll,
             shape = RoundedCornerShape(6.dp),
-            modifier = Modifier.height(28.dp),
+            modifier = Modifier.height(26.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
           ) {
             Icon(
               imageVector = Icons.Default.Refresh,
-              contentDescription = "全部体检",
+              contentDescription = "体检",
               tint = CyanAccent,
               modifier = Modifier
-                .size(12.dp)
+                .size(11.dp)
                 .let { if (isProbing) it.rotate(angle) else it }
             )
-            Spacer(modifier = Modifier.width(3.dp))
+            Spacer(modifier = Modifier.width(2.dp))
             Text(
-              text = if (isProbing) "体检中" else "体检",
+              text = if (isProbing) "探测中" else "刷新",
               color = Color.White,
               fontSize = 11.sp,
               fontWeight = FontWeight.Medium
