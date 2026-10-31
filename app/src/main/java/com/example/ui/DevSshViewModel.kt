@@ -305,7 +305,30 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   fun setTerminalFontSize(size: Int) {
-    _terminalFontSize.value = size.coerceIn(9, 28)
+    _terminalFontSize.value = size.coerceIn(6, 28)
+  }
+
+  fun toggleFitToColumns(targetCols: Int = 80, availableWidthPx: Int, density: Float) {
+    if (availableWidthPx <= 0) return
+    val horizontalPaddingPx = 16f * density
+    val usableWidthPx = (availableWidthPx - horizontalPaddingPx).coerceAtLeast(100f)
+    val calculatedSize = (usableWidthPx / (targetCols * 0.60f * density)).toInt().coerceIn(6, 28)
+
+    val currentSize = _terminalFontSize.value
+    if (currentSize == calculatedSize) {
+      val defaultSize = activeSession.value?.host?.fontSize?.coerceIn(12, 16) ?: 13
+      setTerminalFontSize(defaultSize)
+    } else {
+      setTerminalFontSize(calculatedSize)
+    }
+  }
+
+  fun zoomTerminalFontSize(deltaScale: Float) {
+    val current = _terminalFontSize.value.toFloat()
+    val target = (current * deltaScale).toInt().coerceIn(6, 28)
+    if (target != _terminalFontSize.value) {
+      setTerminalFontSize(target)
+    }
   }
 
   fun setTerminalLineSpacing(spacing: Int) {

@@ -231,8 +231,8 @@ fun TerminalSettingsScreen(
               onValueChange = {
                 viewModel.setTerminalFontSize(it.toInt())
               },
-              valueRange = 10f..24f,
-              steps = 13,
+              valueRange = 6f..26f,
+              steps = 19,
               colors = SliderDefaults.colors(
                 thumbColor = CyanAccent,
                 activeTrackColor = CyanAccent,
@@ -249,6 +249,8 @@ fun TerminalSettingsScreen(
               horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
               val presets = listOf(
+                7 to "7sp (100列适配)",
+                8 to "8sp (80列适配/Tmux)",
                 11 to "11sp 紧凑",
                 13 to "13sp 适中",
                 14 to "14sp 标准",

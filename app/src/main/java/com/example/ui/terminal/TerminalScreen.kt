@@ -5,6 +5,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -75,6 +81,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -183,6 +190,8 @@ fun TerminalScreen(
   val density = androidx.compose.ui.platform.LocalDensity.current
   var terminalWidthPx by remember { mutableIntStateOf(0) }
   var terminalHeightPx by remember { mutableIntStateOf(0) }
+  var maxStableHeightPx by remember { mutableIntStateOf(0) }
+  var lastWidthPx by remember { mutableIntStateOf(0) }
   var lastCols by remember { mutableIntStateOf(0) }
   var lastRows by remember { mutableIntStateOf(0) }
 
@@ -190,22 +199,45 @@ fun TerminalScreen(
   var isLineWrapEnabled by remember { mutableStateOf(true) }
   val horizontalScrollState = rememberScrollState()
 
-  // Auto calculate PTY columns and rows based on screen width/height, font size, and density
-  // and dispatch SIGWINCH to remote Linux host so CLIs like agy / top / vim format accurately
-  LaunchedEffect(terminalWidthPx, terminalHeightPx, fontSize, density) {
-    if (terminalWidthPx > 0 && terminalHeightPx > 0) {
-      val charWidthPx = with(density) { (fontSize * 0.60f).sp.toPx() }
-      val charHeightPx = with(density) { (fontSize * 1.18f).sp.toPx() }
-      val horizontalPaddingPx = with(density) { 16.dp.toPx() }
-      val verticalPaddingPx = with(density) { 12.dp.toPx() }
+  // Exact character cell metrics measured via Paint with monospace typeface
+  val actualCharMetrics = remember(fontSize, density) {
+    val paint = android.graphics.Paint().apply {
+      typeface = android.graphics.Typeface.MONOSPACE
+      textSize = with(density) { fontSize.sp.toPx() }
+    }
+    val measuredWidth = paint.measureText("M")
+    val width = if (measuredWidth > 0f) measuredWidth else with(density) { (fontSize * 0.60f).sp.toPx() }
+    val height = with(density) { (fontSize * 1.18f).sp.toPx() }
+    Pair(width, height)
+  }
+  val charWidthPx = actualCharMetrics.first
+  val charHeightPx = actualCharMetrics.second
+  val horizontalPaddingPx = with(density) { 16.dp.toPx() }
+  val verticalPaddingPx = with(density) { 12.dp.toPx() }
 
-      val cols = ((terminalWidthPx - horizontalPaddingPx) / charWidthPx).toInt().coerceIn(24, 200)
-      val rows = ((terminalHeightPx - verticalPaddingPx) / charHeightPx).toInt().coerceIn(6, 100)
+  // Auto calculate PTY columns and rows based on actual screen width/height and exact monospace font metrics,
+  // and dispatch SIGWINCH to remote Linux host so CLIs like agy / claude code / aider / tmux format accurately.
+  // Using maxStableHeightPx ensures soft keyboard (IME) popup doesn't shrink rows and corrupt tmux/curses state!
+  LaunchedEffect(terminalWidthPx, terminalHeightPx, fontSize, density, charWidthPx, charHeightPx) {
+    if (terminalWidthPx > 0 && terminalHeightPx > 0 && charWidthPx > 0f && charHeightPx > 0f) {
+      if (terminalWidthPx != lastWidthPx) {
+        lastWidthPx = terminalWidthPx
+        maxStableHeightPx = terminalHeightPx
+      } else if (terminalHeightPx > maxStableHeightPx) {
+        maxStableHeightPx = terminalHeightPx
+      }
+
+      val effectiveHeightPx = maxOf(maxStableHeightPx, terminalHeightPx)
+      val usableWidth = (terminalWidthPx - horizontalPaddingPx).coerceAtLeast(100f)
+      val usableHeight = (effectiveHeightPx - verticalPaddingPx).coerceAtLeast(100f)
+
+      val cols = (usableWidth / charWidthPx).toInt().coerceIn(20, 250)
+      val rows = (usableHeight / charHeightPx).toInt().coerceIn(6, 120)
 
       if (cols != lastCols || rows != lastRows) {
         lastCols = cols
         lastRows = rows
-        viewModel.resizeTerminal(cols, rows, terminalWidthPx, terminalHeightPx)
+        viewModel.resizeTerminal(cols, rows, terminalWidthPx, effectiveHeightPx)
       }
     }
   }
@@ -226,6 +258,7 @@ fun TerminalScreen(
       isKeepAliveEnabled = isKeepAliveEnabled,
       isLineWrapEnabled = isLineWrapEnabled,
       isTmuxActive = isTmuxModeActive,
+      cols = lastCols,
       onBack = { viewModel.navigateTo(AppScreen.HOSTS) },
       onToggleLineWrap = { isLineWrapEnabled = !isLineWrapEnabled },
       onToggleTmux = { isTmuxModeActive = !isTmuxModeActive },
@@ -265,12 +298,12 @@ fun TerminalScreen(
             terminalHeightPx = size.height
           }
         }
-        .clickable(
-          interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-          indication = null
-        ) {
-          // Tapping anywhere on the terminal output focuses the input field for immediate Chinese / English typing
-          inputFocusRequester.requestFocus()
+        .pointerInput(Unit) {
+          detectTapGestures(
+            onTap = {
+              inputFocusRequester.requestFocus()
+            }
+          )
         }
     ) {
       if (lines.isEmpty()) {
@@ -289,7 +322,16 @@ fun TerminalScreen(
           }
         )
       } else {
-        val minWidthDp = with(density) { terminalWidthPx.toDp() }
+        val minWidthDp = with(density) {
+          if (isLineWrapEnabled) {
+            terminalWidthPx.toDp()
+          } else {
+            val maxContentCols = lines.maxOfOrNull { it.plainText.length } ?: lastCols
+            val requiredCols = maxOf(lastCols, maxContentCols)
+            val contentWidthPx = requiredCols * charWidthPx + horizontalPaddingPx
+            maxOf(terminalWidthPx.toFloat(), contentWidthPx).toDp()
+          }
+        }
         val terminalModifier = if (isLineWrapEnabled) {
           Modifier.fillMaxSize()
         } else {
@@ -511,6 +553,7 @@ private fun TerminalTopBar(
   isKeepAliveEnabled: Boolean,
   isLineWrapEnabled: Boolean,
   isTmuxActive: Boolean = false,
+  cols: Int = 0,
   onBack: () -> Unit,
   onToggleLineWrap: () -> Unit,
   onToggleTmux: () -> Unit = {},
@@ -588,6 +631,27 @@ private fun TerminalTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
       ) {
+        // Responsive Live Column Count Badge
+        if (cols > 0) {
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(Slate800)
+              .border(1.dp, Slate700, RoundedCornerShape(4.dp))
+              .padding(horizontal = 5.dp, vertical = 3.dp)
+              .testTag("badge_terminal_cols")
+          ) {
+            Text(
+              text = "${cols}列",
+              color = CyanAccent,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace,
+              style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+            )
+          }
+        }
+
         // Line Wrap / Layout Protection Toggle
         Box(
           modifier = Modifier
@@ -728,28 +792,33 @@ private fun TerminalLineItem(
   softWrap: Boolean = false
 ) {
   val annotatedString = remember(line, defaultColor) {
-    buildAnnotatedString {
-      line.segments.forEach { seg ->
-        withStyle(
-          SpanStyle(
-            color = seg.fgColor ?: defaultColor,
-            background = seg.bgColor ?: Color.Transparent,
-            fontWeight = if (seg.bold) FontWeight.Bold else FontWeight.Normal,
-            textDecoration = if (seg.underline) TextDecoration.Underline else TextDecoration.None
-          )
-        ) {
-          append(seg.text)
+    if (line.segments.isEmpty()) {
+      AnnotatedString("")
+    } else {
+      buildAnnotatedString {
+        line.segments.forEach { seg ->
+          withStyle(
+            SpanStyle(
+              color = seg.fgColor ?: defaultColor,
+              background = seg.bgColor ?: Color.Transparent,
+              fontWeight = if (seg.bold) FontWeight.Bold else FontWeight.Normal,
+              textDecoration = if (seg.underline) TextDecoration.Underline else TextDecoration.None
+            )
+          ) {
+            append(seg.text)
+          }
         }
       }
     }
   }
 
   Text(
-    text = annotatedString,
+    text = if (annotatedString.isEmpty()) AnnotatedString(" ") else annotatedString,
     fontSize = fontSize.sp,
     fontFamily = FontFamily.Monospace,
     lineHeight = (fontSize * 1.18f).sp,
     softWrap = softWrap,
+    minLines = 1,
     style = TextStyle(
       platformStyle = PlatformTextStyle(includeFontPadding = false)
     )

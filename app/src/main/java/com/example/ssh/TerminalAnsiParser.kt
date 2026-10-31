@@ -27,8 +27,28 @@ data class CharCell(
   val fg: Color?,
   val bg: Color?,
   val bold: Boolean = false,
-  val underline: Boolean = false
+  val underline: Boolean = false,
+  val isContinuation: Boolean = false
 )
+
+fun getEastAsianWidth(ch: Char): Int {
+  if (ch < ' ') return 0
+  if (ch in ' '..'~') return 1
+  val code = ch.code
+  if (code in 0x1100..0x115F ||
+      code in 0x2E80..0x9FFF ||
+      code in 0xA000..0xA4CF ||
+      code in 0xAC00..0xD7A3 ||
+      code in 0xF900..0xFAFF ||
+      code in 0xFE10..0xFE19 ||
+      code in 0xFE30..0xFE6F ||
+      code in 0xFF00..0xFF60 ||
+      code in 0xFFE0..0xFFE6 ||
+      code in 0x20000..0x2FA1F) {
+    return 2
+  }
+  return 1
+}
 
 class LineBuffer(initialCells: List<CharCell> = emptyList()) {
   val cells = ArrayList<CharCell>(initialCells)
@@ -48,30 +68,70 @@ class LineBuffer(initialCells: List<CharCell> = emptyList()) {
   fun clearTo(col: Int) {
     val end = minOf(col, cells.size)
     for (i in 0 until end) {
-      cells[i] = CharCell(' ', null, null, false, false)
+      cells[i] = CharCell(' ', null, null, false, false, false)
     }
   }
 
-  fun write(col: Int, text: String, fg: Color?, bg: Color?, bold: Boolean, underline: Boolean): Int {
+  fun writeChar(
+    col: Int,
+    ch: Char,
+    charWidth: Int,
+    fg: Color?,
+    bg: Color?,
+    bold: Boolean,
+    underline: Boolean
+  ): Int {
     var c = col
-    for (i in 0 until text.length) {
-      val ch = text[i]
-      val cell = CharCell(ch, fg, bg, bold, underline)
+    val primaryCell = CharCell(ch, fg, bg, bold, underline, isContinuation = false)
+    if (c < cells.size) {
+      cells[c] = primaryCell
+    } else {
+      while (cells.size < c) {
+        cells.add(CharCell(' ', null, null, false, false, false))
+      }
+      cells.add(primaryCell)
+    }
+    c++
+
+    if (charWidth == 2) {
+      val contCell = CharCell('\u0000', fg, bg, bold, underline, isContinuation = true)
       if (c < cells.size) {
-        cells[c] = cell
+        cells[c] = contCell
       } else {
-        while (cells.size < c) {
-          cells.add(CharCell(' ', null, null, false, false))
-        }
-        cells.add(cell)
+        cells.add(contCell)
       }
       c++
     }
     return c
   }
 
+  fun write(col: Int, text: String, fg: Color?, bg: Color?, bold: Boolean, underline: Boolean): Int {
+    var c = col
+    for (i in 0 until text.length) {
+      val ch = text[i]
+      val w = getEastAsianWidth(ch)
+      c = writeChar(c, ch, w, fg, bg, bold, underline)
+    }
+    return c
+  }
+
   fun toTerminalLine(defaultFg: Color): TerminalLine {
     if (cells.isEmpty()) return TerminalLine(emptyList())
+
+    // Trim trailing transparent spaces so they do not cause Compose to soft-wrap empty whitespace
+    var lastVisibleIdx = cells.size - 1
+    while (lastVisibleIdx >= 0) {
+      val c = cells[lastVisibleIdx]
+      val isTrailingSpace = (c.char == ' ' || c.char == '\u0000') && c.bg == null && !c.underline
+      if (!isTrailingSpace) {
+        break
+      }
+      lastVisibleIdx--
+    }
+
+    if (lastVisibleIdx < 0) {
+      return TerminalLine(emptyList())
+    }
 
     val segments = mutableListOf<StyledSegment>()
     var currentFg = cells[0].fg ?: defaultFg
@@ -80,8 +140,10 @@ class LineBuffer(initialCells: List<CharCell> = emptyList()) {
     var currentUnderline = cells[0].underline
     val sb = java.lang.StringBuilder()
 
-    for (i in 0 until cells.size) {
+    for (i in 0..lastVisibleIdx) {
       val cell = cells[i]
+      if (cell.isContinuation) continue
+
       val cellFg = cell.fg ?: defaultFg
       if (cellFg == currentFg && cell.bg == currentBg && cell.bold == currentBold && cell.underline == currentUnderline) {
         sb.append(cell.char)
@@ -139,6 +201,9 @@ class TerminalAnsiParser(
   private var scrollTopMargin = 0
   private var scrollBottomMargin = 23
 
+  // VT100 / xterm autowrap pending flag (DECAWM)
+  private var wrapPending = false
+
   // Character cell line buffer
   private val linesList = mutableListOf<LineBuffer>().apply {
     add(LineBuffer())
@@ -168,6 +233,8 @@ class TerminalAnsiParser(
         this.rows = rows
         scrollTopMargin = 0
         scrollBottomMargin = rows - 1
+        wrapPending = false
+        publishLines()
       }
     }
   }
@@ -187,42 +254,43 @@ class TerminalAnsiParser(
       linesList.add(LineBuffer())
       cursorRow = 0
       cursorCol = 0
+      wrapPending = false
       publishLines()
     }
   }
 
-  private val textBuffer = java.lang.StringBuilder()
-
-  private fun flushText() {
-    if (textBuffer.isEmpty()) return
-    val text = textBuffer.toString()
-    textBuffer.setLength(0)
+  private fun printChar(ch: Char) {
+    val charW = getEastAsianWidth(ch)
+    if (charW == 0) return
 
     val maxCols = cols.coerceAtLeast(10)
-    var textIdx = 0
-    while (textIdx < text.length) {
-      while (cursorRow >= linesList.size) {
-        linesList.add(LineBuffer())
-      }
-      val lineBuffer = linesList[cursorRow]
 
-      val spaceOnLine = maxCols - cursorCol
-      if (spaceOnLine <= 0) {
-        advanceNewline()
-        continue
-      }
+    if (wrapPending) {
+      advanceNewline()
+      wrapPending = false
+    } else if (cursorCol + charW > maxCols) {
+      advanceNewline()
+    }
 
-      val chunkLen = minOf(spaceOnLine, text.length - textIdx)
-      val chunk = text.substring(textIdx, textIdx + chunkLen)
-      cursorCol = lineBuffer.write(
-        col = cursorCol,
-        text = chunk,
-        fg = currentFg,
-        bg = currentBg,
-        bold = isBold,
-        underline = isUnderline
-      )
-      textIdx += chunkLen
+    val baseRow = getScreenBaseRow()
+    while (cursorRow >= linesList.size) {
+      linesList.add(LineBuffer())
+    }
+    val lineBuffer = linesList[cursorRow]
+
+    cursorCol = lineBuffer.writeChar(
+      col = cursorCol,
+      ch = ch,
+      charWidth = charW,
+      fg = currentFg,
+      bg = currentBg,
+      bold = isBold,
+      underline = isUnderline
+    )
+
+    if (cursorCol >= maxCols) {
+      wrapPending = true
+      cursorCol = maxCols - 1
     }
   }
 
@@ -237,7 +305,7 @@ class TerminalAnsiParser(
 
         when (c) {
           '\r' -> {
-            flushText()
+            wrapPending = false
             cursorCol = 0
             if (i + 1 < len && input[i + 1] == '\n') {
               i++
@@ -245,23 +313,23 @@ class TerminalAnsiParser(
             }
           }
           '\n' -> {
-            flushText()
+            wrapPending = false
             advanceNewline()
           }
           '\b' -> {
-            flushText()
+            wrapPending = false
             cursorCol = (cursorCol - 1).coerceAtLeast(0)
           }
           '\t' -> {
-            flushText()
-            val nextTab = ((cursorCol / 8) + 1) * 8
-            val spaces = nextTab - cursorCol
-            for (s in 0 until spaces) {
-              textBuffer.append(' ')
+            wrapPending = false
+            val maxCols = cols.coerceAtLeast(10)
+            val nextTab = minOf(((cursorCol / 8) + 1) * 8, maxCols - 1)
+            while (cursorCol < nextTab) {
+              printChar(' ')
             }
           }
           '\u001b' -> { // ESC
-            flushText()
+            wrapPending = false
             if (i + 1 < len) {
               val next = input[i + 1]
               when (next) {
@@ -315,18 +383,76 @@ class TerminalAnsiParser(
           '\u0007' -> { // BEL - ignore
           }
           else -> {
-            textBuffer.append(c)
+            printChar(c)
           }
         }
         i++
       }
 
-      flushText()
       publishLines()
     }
   }
 
+  private fun scrollRegionUp(n: Int) {
+    val baseRow = getScreenBaseRow()
+    val top = baseRow + scrollTopMargin
+    while (linesList.size < baseRow + rows) {
+      linesList.add(LineBuffer())
+    }
+    val bottom = (baseRow + scrollBottomMargin).coerceAtMost(linesList.size - 1)
+    if (top >= bottom || top < 0 || bottom >= linesList.size) return
+
+    val steps = n.coerceIn(1, scrollBottomMargin - scrollTopMargin + 1)
+    if (scrollTopMargin == 0 && scrollBottomMargin >= rows - 1) {
+      // Normal full-screen scroll: allow lines to scroll off top into scrollback
+      for (k in 0 until steps) {
+        linesList.add(LineBuffer())
+        cursorRow = linesList.size - 1
+        if (linesList.size > maxScrollback) {
+          linesList.removeAt(0)
+          cursorRow = (cursorRow - 1).coerceAtLeast(0)
+        }
+      }
+    } else {
+      // Restricted scrolling region (e.g. Tmux pane):
+      // Lines outside the region (e.g. status bar) MUST stay strictly in place!
+      for (k in 0 until steps) {
+        if (top < linesList.size) {
+          linesList.removeAt(top)
+          linesList.add(bottom.coerceIn(0, linesList.size), LineBuffer())
+        }
+      }
+      cursorRow = bottom
+    }
+  }
+
+  private fun scrollRegionDown(n: Int) {
+    val baseRow = getScreenBaseRow()
+    val top = baseRow + scrollTopMargin
+    while (linesList.size < baseRow + rows) {
+      linesList.add(LineBuffer())
+    }
+    val bottom = (baseRow + scrollBottomMargin).coerceAtMost(linesList.size - 1)
+    if (top >= bottom || top < 0 || bottom >= linesList.size) return
+
+    val steps = n.coerceIn(1, scrollBottomMargin - scrollTopMargin + 1)
+    for (k in 0 until steps) {
+      if (bottom < linesList.size) {
+        linesList.removeAt(bottom)
+        linesList.add(top.coerceIn(0, linesList.size), LineBuffer())
+      }
+    }
+    cursorRow = top
+  }
+
   private fun advanceNewline() {
+    val baseRow = getScreenBaseRow()
+    val screenRow = cursorRow - baseRow
+    if (screenRow == scrollBottomMargin) {
+      scrollRegionUp(1)
+      cursorCol = 0
+      return
+    }
     cursorRow++
     cursorCol = 0
     while (cursorRow >= linesList.size) {
@@ -343,6 +469,7 @@ class TerminalAnsiParser(
   }
 
   private fun handleCsi(params: String, terminator: Char) {
+    wrapPending = false
     when (terminator) {
       'A' -> { // Cursor Up: \e[nA
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
@@ -405,7 +532,7 @@ class TerminalAnsiParser(
           linesList.add(LineBuffer())
         }
         cursorRow = targetRow
-        cursorCol = c.coerceAtLeast(0)
+        cursorCol = c.coerceIn(0, cols - 1)
       }
       'K' -> { // Erase in line: \e[2K (entire line), \e[1K (start to cursor), \e[0K / \e[K (cursor to end)
         if (cursorRow < linesList.size) {
@@ -470,37 +597,47 @@ class TerminalAnsiParser(
       }
       'L' -> { // Insert Line: \e[nL
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        val insertAt = cursorRow.coerceIn(0, linesList.size)
-        for (k in 0 until n) {
-          linesList.add(insertAt, LineBuffer())
+        val baseRow = getScreenBaseRow()
+        while (linesList.size < baseRow + rows) {
+          linesList.add(LineBuffer())
+        }
+        val regionBottom = (baseRow + scrollBottomMargin).coerceAtMost(linesList.size - 1)
+        if (cursorRow in (baseRow + scrollTopMargin)..regionBottom) {
+          val steps = n.coerceIn(1, regionBottom - cursorRow + 1)
+          for (k in 0 until steps) {
+            if (regionBottom < linesList.size) {
+              linesList.removeAt(regionBottom)
+            }
+            linesList.add(cursorRow.coerceIn(0, linesList.size), LineBuffer())
+          }
         }
         cursorCol = 0
       }
       'M' -> { // Delete Line: \e[nM
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val baseRow = getScreenBaseRow()
-        val maxRow = minOf(linesList.size - 1, baseRow + rows - 1)
-        for (k in 0 until n) {
-          if (cursorRow <= maxRow && cursorRow < linesList.size) {
-            linesList.removeAt(cursorRow)
-            linesList.add(maxRow.coerceIn(0, linesList.size), LineBuffer())
+        while (linesList.size < baseRow + rows) {
+          linesList.add(LineBuffer())
+        }
+        val regionBottom = (baseRow + scrollBottomMargin).coerceAtMost(linesList.size - 1)
+        if (cursorRow in (baseRow + scrollTopMargin)..regionBottom) {
+          val steps = n.coerceIn(1, regionBottom - cursorRow + 1)
+          for (k in 0 until steps) {
+            if (cursorRow < linesList.size) {
+              linesList.removeAt(cursorRow)
+              linesList.add(regionBottom.coerceIn(0, linesList.size), LineBuffer())
+            }
           }
         }
         cursorCol = 0
       }
       'S' -> { // Scroll Up: \e[nS
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        for (k in 0 until n) {
-          advanceNewline()
-        }
+        scrollRegionUp(n)
       }
       'T' -> { // Scroll Down: \e[nT
         val n = params.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        val baseRow = getScreenBaseRow()
-        val insertAt = (baseRow + scrollTopMargin).coerceIn(0, linesList.size)
-        for (k in 0 until n) {
-          linesList.add(insertAt, LineBuffer())
-        }
+        scrollRegionDown(n)
       }
       'r' -> { // Set Scrolling Region: \e[top;bottomr
         val parts = params.split(';')
@@ -509,11 +646,14 @@ class TerminalAnsiParser(
         scrollTopMargin = top.coerceIn(0, rows - 1)
         scrollBottomMargin = bottom.coerceIn(scrollTopMargin, rows - 1)
         val baseRow = getScreenBaseRow()
+        while (linesList.size < baseRow + rows) {
+          linesList.add(LineBuffer())
+        }
         cursorRow = (baseRow + scrollTopMargin).coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
         cursorCol = 0
       }
-      'h' -> { // Private mode: \e[?1049h (Alternate screen buffer)
-        if (params == "?1049" || params == "?47") {
+      'h' -> { // Private mode: \e[?1049h, \e[?1047h, \e[?47h (Alternate screen buffer)
+        if (params == "?1049" || params == "?47" || params == "?1047") {
           altLinesSnapshot = linesList.map { it.clone() }
           altCursorRow = cursorRow
           altCursorCol = cursorCol
@@ -521,16 +661,20 @@ class TerminalAnsiParser(
           linesList.add(LineBuffer())
           cursorRow = 0
           cursorCol = 0
+          scrollTopMargin = 0
+          scrollBottomMargin = rows - 1
         }
       }
-      'l' -> { // Private mode: \e[?1049l (Restore main screen buffer)
-        if (params == "?1049" || params == "?47") {
+      'l' -> { // Private mode: \e[?1049l, \e[?1047l, \e[?47l (Restore main screen buffer)
+        if (params == "?1049" || params == "?47" || params == "?1047") {
           altLinesSnapshot?.let { snapshot ->
             linesList.clear()
             linesList.addAll(snapshot.map { it.clone() })
             cursorRow = altCursorRow.coerceIn(0, (linesList.size - 1).coerceAtLeast(0))
             cursorCol = altCursorCol
             altLinesSnapshot = null
+            scrollTopMargin = 0
+            scrollBottomMargin = rows - 1
           }
         }
       }
