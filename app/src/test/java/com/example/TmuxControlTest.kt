@@ -11,17 +11,7 @@ class TmuxControlTest {
     val tmuxPrefix = SpecialKeyHandler.CTRL_B
     assertEquals("\u0002", tmuxPrefix)
 
-    // Test Horizontal Split command
-    val splitH = tmuxPrefix + "\""
-    assertEquals("\u0002\"", splitH)
-
-    // Test Vertical Split command
-    val splitV = tmuxPrefix + "%"
-    assertEquals("\u0002%", splitV)
-
-    // Test Zoom toggle
-    val zoom = tmuxPrefix + "z"
-    assertEquals("\u0002z", zoom)
+    // 窗格/分屏序列已随移动端功能移除，不再断言
 
     // Test New window
     val newWin = tmuxPrefix + "c"
@@ -43,29 +33,7 @@ class TmuxControlTest {
     val screenPrefix = SpecialKeyHandler.CTRL_A
     assertEquals("\u0001", screenPrefix)
 
-    // Screen horizontal split (S)
-    assertEquals("\u0001S", screenPrefix + "S")
-
-    // Screen vertical split (|)
-    assertEquals("\u0001|", screenPrefix + "|")
+    // Screen 分屏序列已随移动端功能移除
   }
 
-  @Test
-  fun testPaneNavigationSequences() {
-    val prefix = SpecialKeyHandler.CTRL_B
-    assertEquals("\u0002\u001b[A", prefix + SpecialKeyHandler.ARROW_UP)
-    assertEquals("\u0002\u001b[B", prefix + SpecialKeyHandler.ARROW_DOWN)
-    assertEquals("\u0002\u001b[D", prefix + SpecialKeyHandler.ARROW_LEFT)
-    assertEquals("\u0002\u001b[C", prefix + SpecialKeyHandler.ARROW_RIGHT)
-  }
-
-  @Test
-  fun testAltResizeSequences() {
-    val prefix = SpecialKeyHandler.CTRL_B
-    val resizeUp = prefix + SpecialKeyHandler.alt('u')
-    assertEquals("\u0002\u001bu", resizeUp)
-
-    val resizeDown = prefix + SpecialKeyHandler.alt('d')
-    assertEquals("\u0002\u001bd", resizeDown)
-  }
 }

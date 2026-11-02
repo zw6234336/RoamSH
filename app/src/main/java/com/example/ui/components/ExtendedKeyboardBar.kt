@@ -82,6 +82,7 @@ import com.example.ssh.SpecialKeyHandler
 import com.example.ui.terminal.CandidateItem
 import com.example.ui.terminal.CandidateType
 import com.example.ui.terminal.CommandCompletionEngine
+import androidx.compose.material3.MaterialTheme
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.Slate700
@@ -104,6 +105,7 @@ fun ExtendedKeyboardBar(
   onSendSpecialKey: (String) -> Unit,
   onSendRawInput: (String) -> Unit,
   onRequestCompletion: (suspend (TextFieldValue, Int) -> CompletionResult)? = null,
+  onFeedback: (String) -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -164,7 +166,7 @@ fun ExtendedKeyboardBar(
         if (result.hasNoLocalMatch || (result.candidates.isEmpty() && result.newTextFieldValue.text == textFieldValue.text)) {
           // If no matches found, forward raw Tab to remote shell
           onSendRawInput("\t")
-          android.widget.Toast.makeText(context, "未找到匹配项 (已向远端发送 Tab)", android.widget.Toast.LENGTH_SHORT).show()
+          onFeedback("未找到匹配项 (已向远端发送 Tab)")
         } else {
           textFieldValue = result.newTextFieldValue
           candidateSuggestions = result.candidates
@@ -172,7 +174,7 @@ fun ExtendedKeyboardBar(
           lastCompletionToken = result.completedToken ?: currentToken
           cycleCount = currentCycle
           result.feedbackMessage?.let { msg ->
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            onFeedback(msg)
           }
         }
       } catch (t: Throwable) {
@@ -343,7 +345,7 @@ fun ExtendedKeyboardBar(
             modifier = Modifier
               .height(34.dp)
               .clip(RoundedCornerShape(6.dp))
-              .background(Color(0xFF0F264A))
+              .background(Slate800)
               .clickable {
                 vibrate()
                 showPasswordMenu = true
@@ -375,17 +377,17 @@ fun ExtendedKeyboardBar(
             )
             if (!savedPassword.isNullOrBlank()) {
               DropdownMenuItem(
-                text = { Text("填入主机保存密码 (Enter)", color = Color.White) },
+                text = { Text("填入主机保存密码 (Enter)", color = MaterialTheme.colorScheme.onSurface) },
                 onClick = {
                   vibrate()
                   onSendRawInput(savedPassword + "\r")
                   showPasswordMenu = false
-                  android.widget.Toast.makeText(context, "已发送保存密码", android.widget.Toast.LENGTH_SHORT).show()
+                  onFeedback("已发送保存密码")
                 }
               )
             }
             DropdownMenuItem(
-              text = { Text("粘贴剪贴板密码 (Enter)", color = Color.White) },
+              text = { Text("粘贴剪贴板密码 (Enter)", color = MaterialTheme.colorScheme.onSurface) },
               onClick = {
                 vibrate()
                 try {
@@ -393,16 +395,16 @@ fun ExtendedKeyboardBar(
                   val clip = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                   if (clip.isNotBlank()) {
                     onSendRawInput(clip + "\r")
-                    android.widget.Toast.makeText(context, "已粘贴并发送密码", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("已粘贴并发送密码")
                   } else {
-                    android.widget.Toast.makeText(context, "剪贴板为空", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("剪贴板为空")
                   }
                 } catch (_: Exception) {}
                 showPasswordMenu = false
               }
             )
             DropdownMenuItem(
-              text = { Text("粘贴剪贴板用户名", color = Color.White) },
+              text = { Text("粘贴剪贴板用户名", color = MaterialTheme.colorScheme.onSurface) },
               onClick = {
                 vibrate()
                 try {
@@ -410,16 +412,16 @@ fun ExtendedKeyboardBar(
                   val clip = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                   if (clip.isNotBlank()) {
                     onSendRawInput(clip)
-                    android.widget.Toast.makeText(context, "已插入用户名", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("已插入用户名")
                   } else {
-                    android.widget.Toast.makeText(context, "剪贴板为空", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("剪贴板为空")
                   }
                 } catch (_: Exception) {}
                 showPasswordMenu = false
               }
             )
             DropdownMenuItem(
-              text = { Text("粘贴剪贴板 Token / 密钥", color = Color.White) },
+              text = { Text("粘贴剪贴板 Token / 密钥", color = MaterialTheme.colorScheme.onSurface) },
               onClick = {
                 vibrate()
                 try {
@@ -427,9 +429,9 @@ fun ExtendedKeyboardBar(
                   val clip = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                   if (clip.isNotBlank()) {
                     onSendRawInput(clip)
-                    android.widget.Toast.makeText(context, "已插入 Token", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("已插入 Token")
                   } else {
-                    android.widget.Toast.makeText(context, "剪贴板为空", android.widget.Toast.LENGTH_SHORT).show()
+                    onFeedback("剪贴板为空")
                   }
                 } catch (_: Exception) {}
                 showPasswordMenu = false
@@ -694,7 +696,7 @@ fun ExtendedKeyboardBar(
           ) {
             (1..12).forEach { num ->
               DropdownMenuItem(
-                text = { Text("F$num", color = Color.White) },
+                text = { Text("F$num", color = MaterialTheme.colorScheme.onSurface) },
                 onClick = {
                   vibrate()
                   onSendSpecialKey(SpecialKeyHandler.fKey(num))
@@ -759,7 +761,7 @@ fun ExtendedKeyboardBar(
               ) {
                 Text(
                   text = "$iconStr ${candidate.displayText}",
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onSurface,
                   fontSize = 11.sp,
                   fontFamily = FontFamily.Monospace,
                   fontWeight = FontWeight.SemiBold
@@ -775,7 +777,7 @@ fun ExtendedKeyboardBar(
             Icon(
               imageVector = Icons.Default.Clear,
               contentDescription = "关闭候选",
-              tint = Color.Gray,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(12.dp)
             )
           }
@@ -884,7 +886,7 @@ fun ExtendedKeyboardBar(
               },
               singleLine = true,
               textStyle = TextStyle(
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Default,
                 platformStyle = PlatformTextStyle(includeFontPadding = false)
@@ -908,7 +910,7 @@ fun ExtendedKeyboardBar(
                   if (textFieldValue.text.isEmpty()) {
                     Text(
                       text = "输入指令 / 中文拼音…",
-                      color = Color.Gray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 12.sp,
                       style = TextStyle(
                         platformStyle = PlatformTextStyle(includeFontPadding = false)
@@ -926,7 +928,7 @@ fun ExtendedKeyboardBar(
                 modifier = Modifier
                   .height(26.dp)
                   .clip(RoundedCornerShape(4.dp))
-                  .background(if (isQueryingCompletion) Color(0xFF0369A1) else Color(0xFF0E7490))
+                  .background(if (isQueryingCompletion) CyanAccent else CyanAccent.copy(alpha = 0.85f))
                   .clickable(enabled = !isQueryingCompletion) {
                     performInBoxCompletion()
                   }
@@ -936,7 +938,7 @@ fun ExtendedKeyboardBar(
               ) {
                 Text(
                   text = if (isQueryingCompletion) "⇥ 查询中..." else "⇥ 补全",
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onSurface,
                   fontSize = 11.sp,
                   fontWeight = FontWeight.Bold,
                   style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
@@ -959,7 +961,7 @@ fun ExtendedKeyboardBar(
                 Icon(
                   imageVector = Icons.Default.Clear,
                   contentDescription = "清空输入",
-                  tint = Color.Gray,
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
                   modifier = Modifier.size(14.dp)
                 )
               }
@@ -980,7 +982,7 @@ fun ExtendedKeyboardBar(
                 Icon(
                   imageVector = Icons.AutoMirrored.Filled.Send,
                   contentDescription = "发送指令",
-                  tint = Color.Black,
+                  tint = MaterialTheme.colorScheme.onPrimary,
                   modifier = Modifier.size(14.dp)
                 )
               }
@@ -1046,7 +1048,7 @@ private fun ChineseTextComposerDialog(
       ) {
         Text(
           text = "支持任何手机中文输入法 (拼音/五笔/手写/语音)，直接发送 UTF-8 到终端，适合编写 Git Commit、文件备注或运行带中文参数的指令：",
-          color = Color.LightGray,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
           fontSize = 11.sp
         )
 
@@ -1097,7 +1099,7 @@ private fun ChineseTextComposerDialog(
         colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
         enabled = text.isNotBlank()
       ) {
-        Text("发送并执行 (回车)", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("发送并执行 (回车)", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
       }
     },
     dismissButton = {
@@ -1135,7 +1137,7 @@ private fun KeyButton(
   ) {
     Text(
       text = label,
-      color = if (isActive) Color.Black else Color.White,
+      color = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
       fontSize = 12.sp,
       fontWeight = FontWeight.Bold,
       fontFamily = FontFamily.Monospace,
@@ -1162,7 +1164,7 @@ private fun ArrowKeyButton(
     Icon(
       imageVector = icon,
       contentDescription = tag,
-      tint = Color.White,
+      tint = MaterialTheme.colorScheme.onSurface,
       modifier = Modifier.size(18.dp)
     )
   }

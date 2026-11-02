@@ -403,6 +403,71 @@ class SshManager(
     }
   }
 
+  /**
+   * Queries the real tmux session state (windows, active flag, mouse mode) over a
+   * dedicated exec channel so the Tmux control bar shows actual server state
+   * instead of local guesses. Safe to call repeatedly; returns TmuxSessionState.NONE
+   * when no tmux server is running or the connection is unavailable.
+   */
+  suspend fun queryTmuxState(): TmuxSessionState = withContext(Dispatchers.IO) {
+    if (simShell != null) return@withContext TmuxSessionState.NONE
+    val activeSession = session
+    if (activeSession == null || !activeSession.isConnected) {
+      return@withContext TmuxSessionState.NONE
+    }
+
+    try {
+      kotlinx.coroutines.withTimeoutOrNull(2500L) {
+        val channel = activeSession.openChannel("exec") as? ChannelExec
+          ?: return@withTimeoutOrNull TmuxSessionState.NONE
+        val singleQuoted = "'" + TmuxStateParser.SCRIPT.replace("'", "'\\''") + "'"
+        channel.setCommand("bash -c $singleQuoted")
+        channel.inputStream = null
+        val inStream = channel.inputStream
+        channel.connect(2000)
+        val raw = inStream.bufferedReader().readLines()
+        try {
+          channel.disconnect()
+        } catch (_: Throwable) {}
+        TmuxStateParser.parse(raw.joinToString("\n"))
+      } ?: TmuxSessionState.NONE
+    } catch (e: Throwable) {
+      android.util.Log.w("SshManager", "Tmux state query failed: ${e.message}")
+      TmuxSessionState.NONE
+    }
+  }
+
+  /**
+   * Toggles tmux's mouse option over a dedicated exec channel. Unlike typing the
+   * command into the PTY, this never injects characters into whatever is running
+   * in the pane (vim / copy-mode / repl safe) and works regardless of prefix config.
+   * Returns false when no tmux server is running or the connection is unavailable.
+   */
+  suspend fun setTmuxMouse(enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
+    if (simShell != null) return@withContext false
+    val activeSession = session
+    if (activeSession == null || !activeSession.isConnected) return@withContext false
+
+    try {
+      kotlinx.coroutines.withTimeoutOrNull(2500L) {
+        val channel = activeSession.openChannel("exec") as? ChannelExec
+          ?: return@withTimeoutOrNull false
+        channel.setCommand("tmux set -g mouse ${if (enabled) "on" else "off"} 2>/dev/null && echo OK")
+        channel.inputStream = null
+        val inStream = channel.inputStream
+        channel.connect(2000)
+        val out = inStream.bufferedReader().readLines()
+        try {
+          channel.disconnect()
+        } catch (_: Throwable) {}
+        out.any { it.trim() == "OK" }
+      } ?: false
+    } catch (e: Throwable) {
+      android.util.Log.w("SshManager", "setTmuxMouse failed: ${e.message}")
+      false
+    }
+  }
+
   fun disconnect() {
     readJob?.cancel()
     readJob = null

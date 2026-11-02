@@ -33,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.PortTunnel
 import com.example.data.model.TunnelType
 import com.example.ui.DevSshViewModel
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.RoseError
 import com.example.ui.theme.Slate700
@@ -79,13 +81,14 @@ fun TunnelsScreen(
   val tunnels by viewModel.allTunnels.collectAsState()
   val hosts by viewModel.allHosts.collectAsState()
   var showAddDialog by remember { mutableStateOf(false) }
+  var tunnelToDelete by remember { mutableStateOf<PortTunnel?>(null) }
 
   Scaffold(
     floatingActionButton = {
       FloatingActionButton(
         onClick = { showAddDialog = true },
         containerColor = CyanAccent,
-        contentColor = Color.Black,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.testTag("fab_add_tunnel")
       ) {
         Icon(Icons.Default.Add, contentDescription = "新建端口隧道")
@@ -108,13 +111,13 @@ fun TunnelsScreen(
       ) {
         Text(
           text = "SSH 端口转发隧道",
-          color = Color.White,
+          color = MaterialTheme.colorScheme.onSurface,
           fontSize = 20.sp,
           fontWeight = FontWeight.Bold
         )
         Text(
           text = "在手机上直接预览电脑运行的 Web 服务 (如 Vite 3000 或 API 8080)",
-          color = Color.Gray,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
           fontSize = 12.sp
         )
       }
@@ -137,7 +140,7 @@ fun TunnelsScreen(
           Spacer(modifier = Modifier.width(8.dp))
           Text(
             text = "本地转发 (Local Port Forward): 开启后，在手机浏览器中打开 http://localhost:端口 即可访问电脑上的网页服务！",
-            color = Color.LightGray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp,
             lineHeight = 15.sp
           )
@@ -155,20 +158,20 @@ fun TunnelsScreen(
             Icon(
               imageVector = Icons.Default.Hub,
               contentDescription = null,
-              tint = Color.Gray,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
               text = "暂无端口转发隧道",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 15.sp,
               fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
               text = "可以添加如 3000、8080 端口转发，在手机直接调试电脑项目",
-              color = Color.Gray,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               fontSize = 12.sp
             )
             Spacer(modifier = Modifier.height(14.dp))
@@ -176,7 +179,7 @@ fun TunnelsScreen(
               onClick = { showAddDialog = true },
               colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
             ) {
-              Text("添加常用端口转发", color = Color.Black, fontWeight = FontWeight.Bold)
+              Text("添加常用端口转发", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
             }
           }
         }
@@ -219,7 +222,7 @@ fun TunnelsScreen(
                   Column {
                     Text(
                       text = tunnel.name,
-                      color = Color.White,
+                      color = MaterialTheme.colorScheme.onSurface,
                       fontSize = 14.sp,
                       fontWeight = FontWeight.Bold
                     )
@@ -232,7 +235,7 @@ fun TunnelsScreen(
                     if (targetHost != null) {
                       Text(
                         text = "关联电脑: ${targetHost.name}",
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
                       )
                     }
@@ -247,7 +250,7 @@ fun TunnelsScreen(
                   )
                   Spacer(modifier = Modifier.width(4.dp))
                   IconButton(
-                    onClick = { viewModel.deleteTunnel(tunnel) },
+                    onClick = { tunnelToDelete = tunnel },
                     modifier = Modifier.size(30.dp)
                   ) {
                     Icon(Icons.Default.Delete, contentDescription = "删除", tint = RoseError)
@@ -259,6 +262,20 @@ fun TunnelsScreen(
         }
       }
     }
+  }
+
+  // 删除隧道二次确认
+  tunnelToDelete?.let { tunnel ->
+    ConfirmDeleteDialog(
+      title = "删除端口转发",
+      targetName = tunnel.name,
+      detail = "删除后手机将无法再通过该端口访问电脑上的对应服务，操作无法恢复。",
+      onConfirm = {
+        viewModel.deleteTunnel(tunnel)
+        tunnelToDelete = null
+      },
+      onDismiss = { tunnelToDelete = null }
+    )
   }
 
   // Add Tunnel Dialog
@@ -369,7 +386,7 @@ fun TunnelsScreen(
           },
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
         ) {
-          Text("保存", color = Color.Black, fontWeight = FontWeight.Bold)
+          Text("保存", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
         }
       },
       dismissButton = {

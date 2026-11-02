@@ -2,7 +2,6 @@ package com.example.ui.hosts
 
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -36,6 +35,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -66,6 +66,7 @@ import com.example.data.model.AuthType
 import com.example.data.model.HostConfig
 import com.example.data.model.SshKey
 import com.example.data.model.TerminalThemeType
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.Slate700
@@ -79,7 +80,8 @@ fun HostEditDialog(
   host: HostConfig?,
   availableKeys: List<SshKey>,
   onSave: (HostConfig) -> Unit,
-  onDismiss: () -> Unit
+  onDismiss: () -> Unit,
+  onFeedback: (String, Boolean) -> Unit = { _, _ -> }
 ) {
   val context = LocalContext.current
 
@@ -118,9 +120,9 @@ fun HostEditDialog(
 
     if (filledCount > 0) {
       autofillMessage = "成功智能解析并填入 $filledCount 项配置！"
-      Toast.makeText(context, "已填入凭据配置", Toast.LENGTH_SHORT).show()
+      onFeedback("已填入凭据配置", false)
     } else {
-      Toast.makeText(context, "未能识别凭据格式，可手动粘贴或点击打开密码管理器", Toast.LENGTH_LONG).show()
+      onFeedback("未能识别凭据格式，可手动粘贴或点击打开密码管理器", true)
     }
   }
 
@@ -133,13 +135,13 @@ fun HostEditDialog(
         if (text.isNotBlank()) {
           handleParseCredentials(text)
         } else {
-          Toast.makeText(context, "剪贴板为空，可点击打开密码管理器复制凭据", Toast.LENGTH_SHORT).show()
+          onFeedback("剪贴板为空，可点击打开密码管理器复制凭据", false)
         }
       } else {
-        Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+        onFeedback("剪贴板为空", false)
       }
     } catch (_: Exception) {
-      Toast.makeText(context, "读取剪贴板异常", Toast.LENGTH_SHORT).show()
+      onFeedback("读取剪贴板异常", true)
     }
   }
 
@@ -157,7 +159,7 @@ fun HostEditDialog(
             password = parsed.password
             authType = AuthType.PASSWORD
           }
-          Toast.makeText(context, "已填入主机地址", Toast.LENGTH_SHORT).show()
+          onFeedback("已填入主机地址", false)
         } else {
           val cleanNoProto = text.removePrefix("ssh://").removePrefix("http://").removePrefix("https://").trim()
           val withoutUser = if (cleanNoProto.contains("@")) {
@@ -169,7 +171,7 @@ fun HostEditDialog(
             withoutUser.substringBefore(":")
           } else withoutUser
           hostAddress = hostPart.trim()
-          Toast.makeText(context, "已粘贴地址", Toast.LENGTH_SHORT).show()
+          onFeedback("已粘贴地址", false)
         }
       }
     } catch (_: Exception) {}
@@ -182,7 +184,7 @@ fun HostEditDialog(
       if (text.isNotBlank()) {
         val parsed = CredentialParser.parse(text)
         username = parsed.username ?: text
-        Toast.makeText(context, "已填入用户名", Toast.LENGTH_SHORT).show()
+        onFeedback("已填入用户名", false)
       }
     } catch (_: Exception) {}
   }
@@ -195,7 +197,7 @@ fun HostEditDialog(
         val parsed = CredentialParser.parse(text)
         password = parsed.password ?: text
         authType = AuthType.PASSWORD
-        Toast.makeText(context, "已填入密码", Toast.LENGTH_SHORT).show()
+        onFeedback("已填入密码", false)
       }
     } catch (_: Exception) {}
   }
@@ -228,7 +230,7 @@ fun HostEditDialog(
           modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF0F264A))
+            .background(Slate800)
             .padding(10.dp)
         ) {
           Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -245,7 +247,7 @@ fun HostEditDialog(
               Spacer(modifier = Modifier.width(6.dp))
               Text(
                 text = "凭据智能填入",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
               )
@@ -265,7 +267,7 @@ fun HostEditDialog(
               ) {
                 Icon(Icons.Default.Key, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(13.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("打开密码管理器", fontSize = 11.sp, color = Color.White)
+                Text("打开密码管理器", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
               }
 
               Button(
@@ -277,15 +279,15 @@ fun HostEditDialog(
                   .height(32.dp),
                 shape = RoundedCornerShape(6.dp)
               ) {
-                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
+                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(13.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("剪贴板快速解析", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                Text("剪贴板快速解析", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
               }
             }
 
             Text(
               text = "支持自动解析剪贴板复制的 SSH 地址、用户名、密码或连接命令",
-              color = Color.LightGray,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               fontSize = 10.sp
             )
 
@@ -398,7 +400,7 @@ fun HostEditDialog(
                 Icon(
                   imageVector = Icons.Default.ContentPaste,
                   contentDescription = "粘贴用户名",
-                  tint = Color.LightGray,
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
                   modifier = Modifier.size(18.dp)
                 )
               }
@@ -414,7 +416,7 @@ fun HostEditDialog(
         )
 
         // Group Tag selection
-        Text("分组标签", fontSize = 12.sp, color = Color.Gray)
+        Text("分组标签", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
           modifier = Modifier
             .fillMaxWidth()
@@ -432,7 +434,7 @@ fun HostEditDialog(
             ) {
               Text(
                 text = tag,
-                color = if (isSelected) Color.Black else Color.White,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 fontSize = 11.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
               )
@@ -441,7 +443,7 @@ fun HostEditDialog(
         }
 
         // Auth type selection
-        Text("认证方式", fontSize = 12.sp, color = Color.Gray)
+        Text("认证方式", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -455,7 +457,7 @@ fun HostEditDialog(
               onClick = { authType = type },
               colors = ButtonDefaults.buttonColors(
                 containerColor = if (isSelected) CyanAccent else Slate800,
-                contentColor = if (isSelected) Color.Black else Color.White
+                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
               ),
               modifier = Modifier.weight(1f)
             ) {
@@ -490,7 +492,7 @@ fun HostEditDialog(
                   Icon(
                     imageVector = Icons.Default.ContentPaste,
                     contentDescription = "粘贴密码",
-                    tint = Color.LightGray,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                   )
                 }
@@ -613,7 +615,7 @@ fun HostEditDialog(
         enabled = name.isNotBlank() && hostAddress.isNotBlank(),
         modifier = Modifier.testTag("btn_save_host")
       ) {
-        Text("保存", color = Color.Black, fontWeight = FontWeight.Bold)
+        Text("保存", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
       }
     },
     dismissButton = {
@@ -639,7 +641,7 @@ fun HostEditDialog(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
             text = "从密码管理器或终端复制条目文本、SSH URL 或命令，粘贴到下方即可自动解析填入：",
-            color = Color.LightGray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp
           )
           OutlinedTextField(
@@ -664,7 +666,7 @@ fun HostEditDialog(
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
           enabled = rawInput.isNotBlank()
         ) {
-          Text("解析并填入", color = Color.Black, fontWeight = FontWeight.Bold)
+          Text("解析并填入", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
         }
       },
       dismissButton = {

@@ -202,4 +202,121 @@ class TerminalParserTest {
     assertEquals(twentyChars, lines[0].plainText)
     assertEquals("NextLine", lines[1].plainText)
   }
+
+  @Test
+  fun testReverseIndexMovesCursorUp() {
+    val parser = TerminalAnsiParser()
+    parser.resize(cols = 20, rows = 5)
+
+    parser.feed("line1\r\nline2\r\n")
+    // ESC M (RI) twice: cursor walks up two rows, KEEPING its column (xterm RI semantics)
+    parser.feed("\u001b[3;1H")   // row 3 (1-based) = line below "line2"
+    parser.feed("\u001bMX\u001bMX")
+    val lines = parser.lines.value
+    // Second X lands one column right of the first (column is preserved across RI)
+    assertEquals("lXne1", lines[0].plainText)
+    assertEquals("Xine2", lines[1].plainText)
+  }
+
+  @Test
+  fun testReverseIndexAtTopMarginScrollsRegionDown() {
+    val parser = TerminalAnsiParser()
+    parser.resize(cols = 20, rows = 4)
+
+    parser.feed("A\r\nB\r\nC\r\n\u001b[1;3r")  // region rows 1..3, cursor homed to row 1
+    parser.feed("\u001bM")                       // RI at top margin -> scroll region down
+    val lines = parser.lines.value
+    // Region content shifts down one row; the line at the bottom margin ("C") is lost
+    assertEquals("", lines[0].plainText)
+    assertEquals("A", lines[1].plainText)
+    assertEquals("B", lines[2].plainText)
+    assertEquals("", lines[3].plainText)
+  }
+
+  @Test
+  fun testResizeShrinkTruncatesStaleCellsBeyondNewWidth() {
+    val parser = TerminalAnsiParser()
+    parser.resize(cols = 20, rows = 5)
+    parser.feed("0123456789012345678XY")  // 20 cols filled, X Y wrap to next line? No: exactly 20 then wrapPending
+
+    // Shrink to 10 cols: cells beyond col 10 must be discarded so tmux's
+    // diff redraw can never merge old-wide fragments into new rows
+    parser.resize(cols = 10, rows = 5)
+    val lines = parser.lines.value
+    assertEquals("0123456789", lines[0].plainText)
+  }
+
+  @Test
+  fun testTmuxRedrawAfterShrinkKeepsStatusBarIntact() {
+    // Reproduces the on-device corruption: tmux status written at 65 cols,
+    // then app shrinks (font up) and tmux redraws diff-style at 51 cols.
+    val parser = TerminalAnsiParser()
+    parser.resize(cols = 20, rows = 6)
+
+    // Old wide screen: content fills all 20 cols incl. status line
+    parser.feed("pane-line-1\r\npane-line-2\r\n")
+    parser.feed("STATUS-OLD-LINE99")   // 19 chars
+    parser.feed("\u001b[4;1H")          // cursor to status row
+
+    parser.resize(cols = 10, rows = 6)
+    // tmux redraws: only rewrites the pane rows it thinks changed + new short status
+    parser.feed("\u001b[1;1Hnew1\u001b[K\r\nnew2\u001b[K\r\n\u001b[K\r\n")
+    parser.feed("\u001b[4;1HSTATUS\u001b[K")
+
+    val lines = parser.lines.value
+    val statusLine = lines[3].plainText
+    // New short status must fully replace the old one - no merged leftovers
+    assertEquals("STATUS", statusLine)
+    assertTrue(
+      "No line may contain stale fragments of the old wider content",
+      lines.none { it.plainText.contains("OLD") || it.plainText.contains("LINE99") }
+    )
+  }
+
+  @Test
+  fun testTmuxCursorDanceLfThenRiKeepsAlignment() {
+    // tmux ends many redraws with: CUP(bottom) DECSTBM CUP(bottom) \n ESC M <prompt> ESC[K
+    // The \n scrolls the restricted region up (cursor stays on bottom margin);
+    // ESC M (RI) must then move the cursor UP one row so the prompt lands correctly.
+    val parser = TerminalAnsiParser()
+    parser.resize(cols = 10, rows = 4)
+
+    parser.feed("aaaa\r\nbbbb\r\ncccc\r\n")
+    parser.feed("\u001b[3;1H")               // cursor to bottom area
+    parser.feed("\u001b[1;3r")               // DECSTBM 1..3 (homes cursor)
+    parser.feed("\u001b[3;1H")               // cursor back to bottom margin row (index 2)
+    parser.feed("\n\u001bMPROMPT")
+
+    val lines = parser.lines.value
+    // \n at bottom margin scrolled region up: [bbbb, cccc, blank]; RI moved cursor to row 1;
+    // PROMPT overwrites "cccc" (index 1) - exactly what a real terminal shows.
+    assertEquals("bbbb", lines[0].plainText)
+    assertEquals("PROMPT", lines[1].plainText)
+    assertEquals("", lines[2].plainText)
+  }
+  @Test
+  fun testAlternateScreenTracking() {
+    // tmux/vim switch to the alternate screen (DECSET 1049/47/1047) and back.
+    // Swipe-to-scroll logic relies on this flag to know scrollback lives remotely.
+    val parser = TerminalAnsiParser()
+    org.junit.Assert.assertFalse(parser.isAlternateScreen)
+
+    parser.feed("\u001b[?1049h")
+    assertTrue(parser.isAlternateScreen)
+    parser.feed("\u001b[?1047l")
+    org.junit.Assert.assertFalse(parser.isAlternateScreen)
+
+    parser.feed("\u001b[?47h")
+    assertTrue(parser.isAlternateScreen)
+    parser.feed("\u001b[?47l")
+    org.junit.Assert.assertFalse(parser.isAlternateScreen)
+
+    // Mouse reporting flag is orthogonal and untouched by screen switches
+    parser.feed("\u001b[?1000h")
+    assertTrue(parser.isMouseReporting)
+    org.junit.Assert.assertFalse(parser.isAlternateScreen)
+    parser.feed("\u001b[?1000l")
+    org.junit.Assert.assertFalse(parser.isMouseReporting)
+  }
 }
+

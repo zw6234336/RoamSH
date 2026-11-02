@@ -16,7 +16,13 @@ data class StyledSegment(
 )
 
 data class TerminalLine(
-  val segments: List<StyledSegment>
+  val segments: List<StyledSegment>,
+  /**
+   * Per-cell grid for strict monospace rendering. Continuation cells of wide
+   * characters are included so column indices stay aligned with cell indices;
+   * renderers must skip them (isContinuation == true).
+   */
+  val cells: List<CharCell> = emptyList()
 ) {
   val plainText: String
     get() = segments.joinToString("") { it.text }
@@ -57,6 +63,19 @@ class LineBuffer(initialCells: List<CharCell> = emptyList()) {
 
   fun clear() {
     cells.clear()
+  }
+
+  /** Discard cells beyond [newCols]; if the cut splits a wide char, blank its dangling primary too. */
+  fun truncateTo(newCols: Int) {
+    if (cells.size > newCols) {
+      cells.subList(newCols, cells.size).clear()
+      val lastIdx = cells.size - 1
+      val lastCell = cells.getOrNull(lastIdx) ?: return
+      if (!lastCell.isContinuation && getEastAsianWidth(lastCell.char) == 2) {
+        // Wide char lost its continuation cell in the cut: blank it so nothing renders half-width
+        cells[lastIdx] = CharCell(' ', null, null, false, false, false)
+      }
+    }
   }
 
   fun clearFrom(col: Int) {
@@ -178,7 +197,12 @@ class LineBuffer(initialCells: List<CharCell> = emptyList()) {
         )
       )
     }
-    return TerminalLine(segments)
+    // Include the raw cell grid (incl. continuation cells) for strict-grid rendering
+    val grid = ArrayList<CharCell>(lastVisibleIdx + 1)
+    for (i in 0..lastVisibleIdx) {
+      grid.add(cells[i])
+    }
+    return TerminalLine(segments, grid)
   }
 }
 
@@ -203,6 +227,17 @@ class TerminalAnsiParser(
 
   // VT100 / xterm autowrap pending flag (DECAWM)
   private var wrapPending = false
+
+  // True while the remote enabled mouse reporting (DECSET 1000/1002/1003),
+  // e.g. tmux with `set -g mouse on`. Swipes can then be forwarded as wheel events.
+  @Volatile var isMouseReporting: Boolean = false
+    private set
+
+  // True while the remote switched to the alternate screen buffer (DECSET 1049/47/1047),
+  // e.g. tmux / vim / less. Scrollback lives on the remote then, so local swipes can
+  // neither scroll the local buffer nor (without mouse reporting) reach remote history.
+  @Volatile var isAlternateScreen: Boolean = false
+    private set
 
   // Character cell line buffer
   private val linesList = mutableListOf<LineBuffer>().apply {
@@ -229,11 +264,27 @@ class TerminalAnsiParser(
   fun resize(cols: Int, rows: Int) {
     lock.withLock {
       if (cols > 0 && rows > 0) {
+        val oldCols = this.cols
         this.cols = cols
         this.rows = rows
         scrollTopMargin = 0
         scrollBottomMargin = rows - 1
         wrapPending = false
+        if (cols < oldCols) {
+          // Width shrink: stale cells beyond the new width MUST be discarded, otherwise
+          // tmux's diff-based redraw (which only rewrites cells it thinks changed) leaves
+          // fragments of the old wider content merged into the new rows.
+          for (line in linesList) {
+            line.truncateTo(cols)
+          }
+          altLinesSnapshot?.forEach { it.truncateTo(cols) }
+        }
+        // Clamp cursor into the new screen area
+        val baseRow = getScreenBaseRow()
+        if (cursorRow > baseRow + rows - 1) {
+          cursorRow = baseRow + rows - 1
+        }
+        if (cursorCol > cols - 1) cursorCol = cols - 1
         publishLines()
       }
     }
@@ -374,6 +425,29 @@ class TerminalAnsiParser(
                   cursorCol = savedCol.coerceAtLeast(0)
                   i++
                 }
+                'M' -> { // RI: Reverse Index - cursor up; scroll region down when at top margin.
+                  // tmux relies on RI for cursor repositioning after region scrolls!
+                  val baseRow = getScreenBaseRow()
+                  val screenRow = cursorRow - baseRow
+                  if (screenRow == scrollTopMargin) {
+                    scrollRegionDown(1)
+                    cursorRow = baseRow + scrollTopMargin
+                  } else if (screenRow < scrollTopMargin) {
+                    cursorRow = (cursorRow - 1).coerceAtLeast(baseRow)
+                  } else {
+                    cursorRow--
+                  }
+                  wrapPending = false
+                  i++
+                }
+                'D' -> { // IND: Index - move down like LF, honors scroll region
+                  advanceNewline()
+                  i++
+                }
+                'E' -> { // NEL: Next Line - CR + LF
+                  advanceNewline()
+                  i++
+                }
                 else -> {
                   i++
                 }
@@ -404,13 +478,12 @@ class TerminalAnsiParser(
 
     val steps = n.coerceIn(1, scrollBottomMargin - scrollTopMargin + 1)
     if (scrollTopMargin == 0 && scrollBottomMargin >= rows - 1) {
-      // Normal full-screen scroll: allow lines to scroll off top into scrollback
+      // Normal full-screen scroll: allow lines to scroll off top into scrollback.
+      // Cursor is NOT moved here - xterm keeps it on the bottom margin row; callers adjust if needed.
       for (k in 0 until steps) {
         linesList.add(LineBuffer())
-        cursorRow = linesList.size - 1
         if (linesList.size > maxScrollback) {
           linesList.removeAt(0)
-          cursorRow = (cursorRow - 1).coerceAtLeast(0)
         }
       }
     } else {
@@ -422,7 +495,6 @@ class TerminalAnsiParser(
           linesList.add(bottom.coerceIn(0, linesList.size), LineBuffer())
         }
       }
-      cursorRow = bottom
     }
   }
 
@@ -442,7 +514,6 @@ class TerminalAnsiParser(
         linesList.add(top.coerceIn(0, linesList.size), LineBuffer())
       }
     }
-    cursorRow = top
   }
 
   private fun advanceNewline() {
@@ -450,6 +521,11 @@ class TerminalAnsiParser(
     val screenRow = cursorRow - baseRow
     if (screenRow == scrollBottomMargin) {
       scrollRegionUp(1)
+      // After a full-screen scroll the buffer grew: re-anchor cursor to the bottom margin row
+      cursorRow = getScreenBaseRow() + scrollBottomMargin
+      while (cursorRow >= linesList.size) {
+        linesList.add(LineBuffer())
+      }
       cursorCol = 0
       return
     }
@@ -653,7 +729,13 @@ class TerminalAnsiParser(
         cursorCol = 0
       }
       'h' -> { // Private mode: \e[?1049h, \e[?1047h, \e[?47h (Alternate screen buffer)
+        if (params == "?1000" || params == "?1002" || params == "?1003") {
+          // Mouse reporting enabled (e.g. tmux `set -g mouse on`): the app may forward
+          // touch swipes as SGR wheel events.
+          isMouseReporting = true
+        }
         if (params == "?1049" || params == "?47" || params == "?1047") {
+          isAlternateScreen = true
           altLinesSnapshot = linesList.map { it.clone() }
           altCursorRow = cursorRow
           altCursorCol = cursorCol
@@ -666,7 +748,11 @@ class TerminalAnsiParser(
         }
       }
       'l' -> { // Private mode: \e[?1049l, \e[?1047l, \e[?47l (Restore main screen buffer)
+        if (params == "?1000" || params == "?1002" || params == "?1003") {
+          isMouseReporting = false
+        }
         if (params == "?1049" || params == "?47" || params == "?1047") {
+          isAlternateScreen = false
           altLinesSnapshot?.let { snapshot ->
             linesList.clear()
             linesList.addAll(snapshot.map { it.clone() })

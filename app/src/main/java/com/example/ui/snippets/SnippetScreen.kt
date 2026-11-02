@@ -3,7 +3,6 @@ package com.example.ui.snippets
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -38,6 +37,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.Snippet
 import com.example.ui.DevSshViewModel
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.RoseError
 import com.example.ui.theme.Slate700
@@ -78,6 +79,7 @@ fun SnippetScreen(
   val snippets by viewModel.allSnippets.collectAsState()
   var selectedCategory by remember { mutableStateOf("全部") }
   var showAddDialog by remember { mutableStateOf(false) }
+  var snippetToDelete by remember { mutableStateOf<Snippet?>(null) }
 
   val categories = remember(snippets) {
     listOf("全部") + snippets.map { it.category }.distinct()
@@ -91,7 +93,7 @@ fun SnippetScreen(
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText("snippet", text)
     clipboard.setPrimaryClip(clip)
-    Toast.makeText(context, "已复制指令到剪贴板", Toast.LENGTH_SHORT).show()
+    viewModel.showMessage("已复制指令到剪贴板")
   }
 
   Scaffold(
@@ -99,7 +101,7 @@ fun SnippetScreen(
       FloatingActionButton(
         onClick = { showAddDialog = true },
         containerColor = CyanAccent,
-        contentColor = Color.Black,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.testTag("fab_add_snippet")
       ) {
         Icon(Icons.Default.Add, contentDescription = "新建快捷指令")
@@ -122,13 +124,13 @@ fun SnippetScreen(
       ) {
         Text(
           text = "常用编程指令片段库",
-          color = Color.White,
+          color = MaterialTheme.colorScheme.onSurface,
           fontSize = 20.sp,
           fontWeight = FontWeight.Bold
         )
         Text(
           text = "一键向远程电脑终端发送 Git、Docker、编译运行等快捷指令",
-          color = Color.Gray,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
           fontSize = 12.sp
         )
 
@@ -152,7 +154,7 @@ fun SnippetScreen(
             ) {
               Text(
                 text = cat,
-                color = if (isSelected) Color.Black else Color.White,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
               )
@@ -162,6 +164,36 @@ fun SnippetScreen(
       }
 
       // Snippet cards
+      if (filteredSnippets.isEmpty()) {
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+          contentAlignment = Alignment.Center
+        ) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+              imageVector = Icons.Default.Code,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+              text = if (selectedCategory == "全部") "暂无常用指令片段" else "「$selectedCategory」分类下暂无片段",
+              color = MaterialTheme.colorScheme.onSurface,
+              fontSize = 15.sp,
+              fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "把 Git 拉取、Docker 重启等高频指令存成片段，一键发送到终端",
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontSize = 12.sp
+            )
+          }
+        }
+      } else {
       LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -197,7 +229,7 @@ fun SnippetScreen(
                   Spacer(modifier = Modifier.width(8.dp))
                   Text(
                     text = snippet.title,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                   )
@@ -211,12 +243,12 @@ fun SnippetScreen(
                     Icon(
                       imageVector = Icons.Default.ContentCopy,
                       contentDescription = "复制",
-                      tint = Color.LightGray,
+                      tint = MaterialTheme.colorScheme.onSurfaceVariant,
                       modifier = Modifier.size(16.dp)
                     )
                   }
                   IconButton(
-                    onClick = { viewModel.deleteSnippet(snippet) },
+                    onClick = { snippetToDelete = snippet },
                     modifier = Modifier.size(30.dp)
                   ) {
                     Icon(
@@ -236,7 +268,7 @@ fun SnippetScreen(
                 modifier = Modifier
                   .fillMaxWidth()
                   .clip(RoundedCornerShape(6.dp))
-                  .background(Slate950)
+                  .background(Color(0xFF0F172A))
                   .padding(8.dp)
               ) {
                 Text(
@@ -262,17 +294,32 @@ fun SnippetScreen(
                 Icon(
                   imageVector = Icons.Default.Send,
                   contentDescription = null,
-                  tint = Color.Black,
+                  tint = MaterialTheme.colorScheme.onPrimary,
                   modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("发送至终端执行", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("发送至终端执行", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
               }
             }
           }
         }
       }
+      }
     }
+  }
+
+  // 删除片段二次确认
+  snippetToDelete?.let { snippet ->
+    ConfirmDeleteDialog(
+      title = "删除指令片段",
+      targetName = snippet.title,
+      detail = "删除后需要重新手动输入该指令，操作无法恢复。",
+      onConfirm = {
+        viewModel.deleteSnippet(snippet)
+        snippetToDelete = null
+      },
+      onDismiss = { snippetToDelete = null }
+    )
   }
 
   // Add Snippet Dialog
@@ -338,7 +385,7 @@ fun SnippetScreen(
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
           enabled = title.isNotBlank() && command.isNotBlank()
         ) {
-          Text("保存", color = Color.Black, fontWeight = FontWeight.Bold)
+          Text("保存", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
         }
       },
       dismissButton = {

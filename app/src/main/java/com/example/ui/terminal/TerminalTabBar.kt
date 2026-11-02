@@ -67,6 +67,9 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.HostConfig
 import com.example.ssh.SshConnectionState
 import com.example.ssh.TerminalSession
+import com.example.ui.theme.Slate850
+import com.example.ui.theme.AmberWarning
+import androidx.compose.material3.MaterialTheme
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
@@ -116,18 +119,18 @@ fun TerminalTabBar(
 
           val (dotColor, _) = when (val state = connState) {
             is SshConnectionState.Connected -> {
-              if (state.isSimulated) Pair(Color(0xFF38BDF8), "模拟沙箱")
+              if (state.isSimulated) Pair(CyanAccent, "模拟沙箱")
               else Pair(EmeraldSuccess, "已连接")
             }
-            is SshConnectionState.Connecting -> Pair(Color(0xFFF59E0B), "连接中")
+            is SshConnectionState.Connecting -> Pair(AmberWarning, "连接中")
             is SshConnectionState.Error -> Pair(RoseError, "异常")
-            is SshConnectionState.Disconnected -> Pair(Color.Gray, "断开")
+            is SshConnectionState.Disconnected -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "断开")
           }
 
           val tabShape = RoundedCornerShape(8.dp)
-          val tabBg = if (isActive) Color(0xFF1E293B) else Color(0xFF0F172A)
-          val tabBorder = if (isActive) CyanAccent.copy(alpha = 0.85f) else Color(0xFF1E293B)
-          val textColor = if (isActive) Color.White else Color(0xFF94A3B8)
+          val tabBg = if (isActive) Slate800 else Slate900
+          val tabBorder = if (isActive) CyanAccent.copy(alpha = 0.85f) else Slate800
+          val textColor = if (isActive) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
           Box(
             modifier = Modifier
@@ -165,20 +168,21 @@ fun TerminalTabBar(
                 modifier = Modifier.widthIn(max = 125.dp)
               )
 
-              // Close Tab Button (with touch padding)
+              // Close Tab Button — 24dp touch target (18dp was too easy to mis-tap
+              // next to the tab title; closing disconnects the SSH session).
               Box(
                 modifier = Modifier
-                  .size(18.dp)
+                  .size(24.dp)
                   .clip(CircleShape)
-                  .background(if (isActive) Color(0x33FFFFFF) else Color.Transparent)
+                  .background(if (isActive) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f) else Color.Transparent)
                   .clickable { onCloseSession(session.id) },
                 contentAlignment = Alignment.Center
               ) {
                 Icon(
                   imageVector = Icons.Default.Close,
                   contentDescription = "关闭标签页",
-                  tint = if (isActive) Color.White else Color.Gray,
-                  modifier = Modifier.size(11.dp)
+                  tint = if (isActive) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.size(13.dp)
                 )
               }
             }
@@ -193,7 +197,7 @@ fun TerminalTabBar(
         modifier = Modifier
           .size(32.dp)
           .clip(RoundedCornerShape(8.dp))
-          .background(Color(0xFF1E293B))
+          .background(Slate800)
           .border(1.dp, CyanAccent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
           .clickable { showNewTabSheet = true }
           .testTag("btn_add_tab"),
@@ -217,8 +221,8 @@ fun TerminalTabBar(
     AlertDialog(
       onDismissRequest = { sessionToRename = null },
       containerColor = Slate900,
-      titleContentColor = Color.White,
-      textContentColor = Color.White,
+      titleContentColor = MaterialTheme.colorScheme.onSurface,
+      textContentColor = MaterialTheme.colorScheme.onSurface,
       shape = RoundedCornerShape(16.dp),
       icon = {
         Icon(
@@ -236,7 +240,7 @@ fun TerminalTabBar(
           Text(
             text = "为当前终端会话命名，方便在多个窗口间快速切换：",
             fontSize = 12.sp,
-            color = Color.LightGray
+            color = MaterialTheme.colorScheme.onSurfaceVariant
           )
           Spacer(modifier = Modifier.height(12.dp))
           OutlinedTextField(
@@ -245,9 +249,9 @@ fun TerminalTabBar(
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = CyanAccent,
-              unfocusedBorderColor = Color(0xFF475569),
-              focusedTextColor = Color.White,
-              unfocusedTextColor = Color.White,
+              unfocusedBorderColor = Slate700,
+              focusedTextColor = MaterialTheme.colorScheme.onSurface,
+              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
               cursorColor = CyanAccent
             ),
             shape = RoundedCornerShape(8.dp),
@@ -269,7 +273,7 @@ fun TerminalTabBar(
       },
       dismissButton = {
         TextButton(onClick = { sessionToRename = null }) {
-          Text("取消", color = Color.Gray)
+          Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       }
     )
@@ -283,14 +287,14 @@ fun TerminalTabBar(
     ModalBottomSheet(
       onDismissRequest = { showNewTabSheet = false },
       sheetState = sheetState,
-      containerColor = Color(0xFF0B1120),
+      containerColor = Slate900,
       dragHandle = {
         Box(
           modifier = Modifier
             .padding(top = 10.dp, bottom = 4.dp)
             .size(width = 36.dp, height = 4.dp)
             .clip(CircleShape)
-            .background(Color(0xFF334155))
+            .background(Slate700)
         )
       },
       shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
@@ -329,13 +333,13 @@ fun TerminalTabBar(
             Column {
               Text(
                 text = "新建终端标签页",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold
               )
               Text(
                 text = "开启独立 Shell 会话，多任务并行操作",
-                color = Color(0xFF94A3B8),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
               )
             }
@@ -346,12 +350,12 @@ fun TerminalTabBar(
             modifier = Modifier
               .size(28.dp)
               .clip(CircleShape)
-              .background(Color(0xFF1E293B))
+              .background(Slate800)
           ) {
             Icon(
               imageVector = Icons.Default.Close,
               contentDescription = "关闭",
-              tint = Color.LightGray,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(16.dp)
             )
           }
@@ -375,8 +379,8 @@ fun TerminalTabBar(
                   .background(
                     Brush.horizontalGradient(
                       listOf(
-                        Color(0xFF0E7490).copy(alpha = 0.35f),
-                        Color(0xFF1E293B)
+                        CyanAccent.copy(alpha = 0.35f),
+                        Slate800
                       )
                     )
                   )
@@ -400,13 +404,13 @@ fun TerminalTabBar(
                       modifier = Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0E7490)),
+                        .background(CyanAccent),
                       contentAlignment = Alignment.Center
                     ) {
                       Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(22.dp)
                       )
                     }
@@ -415,7 +419,7 @@ fun TerminalTabBar(
                       Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                           text = "当前主机新建窗口",
-                          color = Color.White,
+                          color = MaterialTheme.colorScheme.onSurface,
                           fontSize = 14.sp,
                           fontWeight = FontWeight.Bold
                         )
@@ -431,7 +435,7 @@ fun TerminalTabBar(
                       }
                       Text(
                         text = "${activeSession.host.name} (${activeSession.host.username}@${activeSession.host.host})",
-                        color = Color(0xFFCBD5E1),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
@@ -462,7 +466,7 @@ fun TerminalTabBar(
               ) {
                 Text(
                   text = "选择服务器快速连接",
-                  color = Color(0xFF94A3B8),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
                   fontSize = 12.sp,
                   fontWeight = FontWeight.Bold
                 )
@@ -470,21 +474,21 @@ fun TerminalTabBar(
                 Box(
                   modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1E293B))
+                    .background(Slate800)
                     .padding(horizontal = 6.dp, vertical = 1.dp)
                 ) {
-                  Text("${allHosts.size}", color = Color.LightGray, fontSize = 10.sp)
+                  Text("${allHosts.size}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                 }
               }
             }
 
             items(allHosts) { host ->
               Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131D31)),
+                colors = CardDefaults.cardColors(containerColor = Slate850),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                   .fillMaxWidth()
-                  .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                  .border(1.dp, Slate800, RoundedCornerShape(10.dp))
                   .clickable {
                     showNewTabSheet = false
                     onNewTab(host, false)
@@ -505,7 +509,7 @@ fun TerminalTabBar(
                       modifier = Modifier
                         .size(34.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF1E293B)),
+                        .background(Slate800),
                       contentAlignment = Alignment.Center
                     ) {
                       Icon(
@@ -519,13 +523,13 @@ fun TerminalTabBar(
                     Column {
                       Text(
                         text = host.name,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                       )
                       Text(
                         text = "${host.username}@${host.host}:${host.port}",
-                        color = Color(0xFF94A3B8),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                       )
@@ -535,7 +539,7 @@ fun TerminalTabBar(
                   Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = Color.Gray,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                   )
                 }
@@ -553,7 +557,7 @@ fun TerminalTabBar(
             ) {
               Text(
                 text = "离线环境",
-                color = Color(0xFF94A3B8),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
               )
@@ -563,8 +567,8 @@ fun TerminalTabBar(
               modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF0F172A))
-                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                .background(Slate900)
+                .border(1.dp, CyanAccent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                 .clickable {
                   showNewTabSheet = false
                   val sandboxHost = HostConfig(
@@ -590,13 +594,13 @@ fun TerminalTabBar(
                     modifier = Modifier
                       .size(36.dp)
                       .clip(RoundedCornerShape(8.dp))
-                      .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                      .background(CyanAccent.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                   ) {
                     Icon(
                       imageVector = Icons.Default.Terminal,
                       contentDescription = null,
-                      tint = Color(0xFF38BDF8),
+                      tint = CyanAccent,
                       modifier = Modifier.size(20.dp)
                     )
                   }
@@ -605,7 +609,7 @@ fun TerminalTabBar(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                       Text(
                         text = "本地沙箱模拟终端",
-                        color = Color(0xFF38BDF8),
+                        color = CyanAccent,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                       )
@@ -613,15 +617,15 @@ fun TerminalTabBar(
                       Box(
                         modifier = Modifier
                           .clip(RoundedCornerShape(4.dp))
-                          .background(Color(0xFF38BDF8).copy(alpha = 0.15f))
+                          .background(CyanAccent.copy(alpha = 0.15f))
                           .padding(horizontal = 4.dp, vertical = 1.dp)
                       ) {
-                        Text("无需网络", color = Color(0xFF38BDF8), fontSize = 9.sp)
+                        Text("无需网络", color = CyanAccent, fontSize = 9.sp)
                       }
                     }
                     Text(
                       text = "内置模拟环境，支持免联网调试 agy, git, docker 等",
-                      color = Color(0xFF94A3B8),
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 11.sp
                     )
                   }
@@ -630,7 +634,7 @@ fun TerminalTabBar(
                 Icon(
                   imageVector = Icons.Default.ChevronRight,
                   contentDescription = null,
-                  tint = Color(0xFF38BDF8),
+                  tint = CyanAccent,
                   modifier = Modifier.size(18.dp)
                 )
               }

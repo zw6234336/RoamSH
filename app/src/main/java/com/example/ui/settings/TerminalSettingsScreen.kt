@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -126,7 +125,7 @@ fun TerminalSettingsScreen(
         title = {
           Text(
             text = "终端外观与偏好设置",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp
           )
@@ -136,7 +135,7 @@ fun TerminalSettingsScreen(
             Icon(
               imageVector = Icons.AutoMirrored.Filled.ArrowBack,
               contentDescription = "返回",
-              tint = Color.White
+              tint = MaterialTheme.colorScheme.onSurface
             )
           }
         },
@@ -149,13 +148,13 @@ fun TerminalSettingsScreen(
               viewModel.setTerminalLineSpacing(4)
               viewModel.setTerminalFontBold(false)
               viewModel.setTerminalCursorStyle("BLOCK")
-              Toast.makeText(context, "已恢复默认外观设置", Toast.LENGTH_SHORT).show()
+              viewModel.showMessage("已恢复默认外观设置")
             }
           ) {
             Icon(
               imageVector = Icons.Default.RestartAlt,
               contentDescription = "恢复默认",
-              tint = Color.LightGray
+              tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         },
@@ -202,7 +201,7 @@ fun TerminalSettingsScreen(
             ) {
               Text(
                 text = "终端字号大小",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
               )
@@ -210,7 +209,7 @@ fun TerminalSettingsScreen(
                 Box(
                   modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF0F264A))
+                    .background(Slate800)
                     .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                   Text(
@@ -272,7 +271,7 @@ fun TerminalSettingsScreen(
                 ) {
                   Text(
                     text = label,
-                    color = if (isSelected) Color.Black else Color.White,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                   )
@@ -302,13 +301,13 @@ fun TerminalSettingsScreen(
               Column {
                 Text(
                   text = "全终端等宽字体加粗",
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onSurface,
                   fontSize = 14.sp,
                   fontWeight = FontWeight.Medium
                 )
                 Text(
                   text = "在小屏或高分辨率手机上增强文字边缘对比度",
-                  color = Color.Gray,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
                   fontSize = 11.sp
                 )
               }
@@ -319,7 +318,7 @@ fun TerminalSettingsScreen(
                   viewModel.setTerminalFontBold(it)
                 },
                 colors = SwitchDefaults.colors(
-                  checkedThumbColor = Color.Black,
+                  checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                   checkedTrackColor = CyanAccent
                 )
               )
@@ -330,7 +329,7 @@ fun TerminalSettingsScreen(
             // Line Spacing Row
             Text(
               text = "行高间距倍率",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 14.sp,
               fontWeight = FontWeight.Medium
             )
@@ -360,7 +359,7 @@ fun TerminalSettingsScreen(
                 ) {
                   Text(
                     text = label,
-                    color = if (isSelected) Color.Black else Color.LightGray,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                   )
@@ -373,7 +372,7 @@ fun TerminalSettingsScreen(
             // Cursor Style
             Text(
               text = "终端光标样式",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 14.sp,
               fontWeight = FontWeight.Medium
             )
@@ -402,7 +401,7 @@ fun TerminalSettingsScreen(
                 ) {
                   Text(
                     text = label,
-                    color = if (isSelected) Color.Black else Color.LightGray,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                   )
@@ -418,7 +417,7 @@ fun TerminalSettingsScreen(
         SectionTitle(icon = Icons.Default.ColorLens, title = "选择配色主题 (Themes)")
         Text(
           text = "支持开发者经典配色（含 Gruvbox、Dracula、Solarized、Nord 等），点击立即切换：",
-          color = Color.Gray,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
           fontSize = 11.sp,
           modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
         )
@@ -445,7 +444,7 @@ fun TerminalSettingsScreen(
           onClick = {
             vibrate()
             viewModel.applyCurrentAppearanceToAllHosts()
-            Toast.makeText(context, "已将当前外观设置同步到全部主机！", Toast.LENGTH_SHORT).show()
+            viewModel.showMessage("已将当前外观设置同步到全部主机")
           },
           colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
           shape = RoundedCornerShape(8.dp),
@@ -454,7 +453,7 @@ fun TerminalSettingsScreen(
             .height(44.dp)
             .testTag("btn_sync_all_hosts")
         ) {
-          Icon(Icons.Default.Sync, contentDescription = null, tint = Color.Black)
+          Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
           Spacer(modifier = Modifier.width(6.dp))
           Text(
             text = "将当前主题与字号应用到所有主机",
@@ -479,7 +478,7 @@ private fun SectionTitle(
     Spacer(modifier = Modifier.width(6.dp))
     Text(
       text = title,
-      color = Color.White,
+      color = MaterialTheme.colorScheme.onSurface,
       fontSize = 15.sp,
       fontWeight = FontWeight.Bold
     )
@@ -678,7 +677,7 @@ private fun ThemeOptionCard(
           Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
               text = scheme.name,
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 15.sp,
               fontWeight = FontWeight.Bold
             )
@@ -692,7 +691,7 @@ private fun ThemeOptionCard(
               ) {
                 Text(
                   text = "当前使用",
-                  color = Color.Black,
+                  color = MaterialTheme.colorScheme.onPrimary,
                   fontSize = 10.sp,
                   fontWeight = FontWeight.Bold
                 )
@@ -701,7 +700,7 @@ private fun ThemeOptionCard(
           }
           Text(
             text = themeTag,
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp
           )
           Spacer(modifier = Modifier.height(4.dp))
@@ -731,7 +730,7 @@ private fun ThemeOptionCard(
           Icon(
             imageVector = Icons.Default.Check,
             contentDescription = "已选择",
-            tint = Color.Black,
+            tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(16.dp)
           )
         }

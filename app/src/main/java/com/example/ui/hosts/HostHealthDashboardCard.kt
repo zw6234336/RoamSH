@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.HealthRating
 import com.example.data.model.HostConfig
 import com.example.data.model.HostHealthMetrics
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
@@ -126,7 +128,7 @@ fun HostHealthDashboardCard(
             modifier = Modifier
               .size(28.dp)
               .clip(RoundedCornerShape(6.dp))
-              .background(Color(0xFF0F264A)),
+              .background(Slate800),
             contentAlignment = Alignment.Center
           ) {
             Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
@@ -136,7 +138,7 @@ fun HostHealthDashboardCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
               Text(
                 text = "主机健康监控看板",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
               )
@@ -144,7 +146,7 @@ fun HostHealthDashboardCard(
               Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                 contentDescription = null,
-                tint = Color.Gray,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp)
               )
             }
@@ -168,12 +170,12 @@ fun HostHealthDashboardCard(
                 modifier = Modifier
                   .size(6.dp)
                   .clip(CircleShape)
-                  .background(if (onlineCount > 0) EmeraldSuccess else Color.Gray)
+                  .background(if (onlineCount > 0) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant)
               )
               Spacer(modifier = Modifier.width(4.dp))
               Text(
                 text = "$onlineCount/${hosts.size}" + (if (avgLatency != null) " • ${avgLatency}ms" else ""),
-                color = if (onlineCount > 0) EmeraldSuccess else Color.LightGray,
+                color = if (onlineCount > 0) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
               )
@@ -193,12 +195,12 @@ fun HostHealthDashboardCard(
                 modifier = Modifier
                   .size(6.dp)
                   .clip(CircleShape)
-                  .background(if (isAutoRefreshEnabled) EmeraldSuccess else Color.Gray)
+                  .background(if (isAutoRefreshEnabled) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant)
               )
               Spacer(modifier = Modifier.width(3.dp))
               Text(
                 text = if (isAutoRefreshEnabled) "自动 ${autoRefreshIntervalSeconds}s" else "已暂停",
-                color = if (isAutoRefreshEnabled) EmeraldSuccess else Color.Gray,
+                color = if (isAutoRefreshEnabled) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
               )
@@ -223,7 +225,7 @@ fun HostHealthDashboardCard(
             Spacer(modifier = Modifier.width(2.dp))
             Text(
               text = if (isProbing) "探测中" else "刷新",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 11.sp,
               fontWeight = FontWeight.Medium
             )
@@ -246,10 +248,10 @@ fun HostHealthDashboardCard(
               val isHostOnline = health?.isOnline == true
               val (dotColor, latencyLabel) = when {
                 health?.isProbing == true -> Pair(CyanAccent, "体检中...")
-                health == null -> Pair(Color.Gray, "未探测")
+                health == null -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "未探测")
                 !isHostOnline -> Pair(RoseError, "离线")
                 else -> Pair(
-                  if ((health.latencyMs ?: 999) < 80) EmeraldSuccess else Color(0xFFF59E0B),
+                  if ((health.latencyMs ?: 999) < 80) EmeraldSuccess else AmberWarning,
                   "${health.latencyMs}ms"
                 )
               }
@@ -275,7 +277,7 @@ fun HostHealthDashboardCard(
                     )
                     Text(
                       text = host.name,
-                      color = Color.White,
+                      color = MaterialTheme.colorScheme.onSurface,
                       fontSize = 12.sp,
                       fontWeight = FontWeight.Bold,
                       maxLines = 1
@@ -297,14 +299,14 @@ fun HostHealthDashboardCard(
                       if (health.cpuUsagePercent != null) {
                         Text(
                           text = "CPU ${health.cpuUsagePercent}%",
-                          color = Color.LightGray,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
                           fontSize = 10.sp
                         )
                       }
                       if (health.memUsagePercent != null) {
                         Text(
                           text = "RAM ${health.memUsagePercent}%",
-                          color = Color.LightGray,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
                           fontSize = 10.sp
                         )
                       }
@@ -312,7 +314,7 @@ fun HostHealthDashboardCard(
                   } else {
                     Text(
                       text = "点击展开体检详情",
-                      color = Color.Gray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 10.sp
                     )
                   }

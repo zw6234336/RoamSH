@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.AuthType
 import com.example.data.model.HostConfig
 import com.example.ui.DevSshViewModel
+import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
@@ -84,6 +86,7 @@ import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.Slate950
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun HostListScreen(
   viewModel: DevSshViewModel,
@@ -102,6 +105,7 @@ fun HostListScreen(
   var selectedTag by remember { mutableStateOf("全部") }
   var hostToEdit by remember { mutableStateOf<HostConfig?>(null) }
   var hostForHealthDetail by remember { mutableStateOf<HostConfig?>(null) }
+  var hostToDelete by remember { mutableStateOf<HostConfig?>(null) }
   var showAddDialog by remember { mutableStateOf(false) }
 
   val allTags = remember(hosts) {
@@ -124,7 +128,7 @@ fun HostListScreen(
       FloatingActionButton(
         onClick = { showAddDialog = true },
         containerColor = CyanAccent,
-        contentColor = Color.Black,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.testTag("fab_add_host")
       ) {
         Icon(Icons.Default.Add, contentDescription = "添加主机")
@@ -153,13 +157,13 @@ fun HostListScreen(
           Column {
             Text(
               text = "RoamSH 远程工作站",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 20.sp,
               fontWeight = FontWeight.Bold
             )
             Text(
               text = "连接你的个人电脑、服务器或开发环境",
-              color = Color.Gray,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               fontSize = 12.sp
             )
           }
@@ -230,7 +234,7 @@ fun HostListScreen(
             Icon(
               imageVector = Icons.Default.Search,
               contentDescription = null,
-              tint = if (searchQuery.isNotEmpty()) CyanAccent else Color.Gray,
+              tint = if (searchQuery.isNotEmpty()) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -239,7 +243,7 @@ fun HostListScreen(
               onValueChange = { searchQuery = it },
               singleLine = true,
               textStyle = TextStyle(
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 13.sp,
                 platformStyle = PlatformTextStyle(includeFontPadding = false)
               ),
@@ -256,7 +260,7 @@ fun HostListScreen(
                   if (searchQuery.isEmpty()) {
                     Text(
                       text = "搜索电脑名称、IP 或用户名…",
-                      color = Color.Gray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 13.sp,
                       style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                     )
@@ -273,7 +277,7 @@ fun HostListScreen(
                 Icon(
                   imageVector = Icons.Default.Close,
                   contentDescription = "清除搜索",
-                  tint = Color.Gray,
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
                   modifier = Modifier.size(16.dp)
                 )
               }
@@ -301,7 +305,7 @@ fun HostListScreen(
             ) {
               Text(
                 text = tag,
-                color = if (isSelected) Color.Black else Color.White,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
               )
@@ -311,6 +315,12 @@ fun HostListScreen(
       }
 
       // Hosts List
+      // Pull-to-refresh drives the same global health probe as the refresh button:
+      // the natural gesture users expect on a list dashboard.
+      androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = isProbingAll,
+        onRefresh = { viewModel.probeAllHostsHealth() }
+      ) {
       if (filteredHosts.isEmpty()) {
         Box(
           modifier = Modifier
@@ -322,20 +332,20 @@ fun HostListScreen(
             Icon(
               imageVector = Icons.Default.Computer,
               contentDescription = null,
-              tint = Color.Gray,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
               text = if (searchQuery.isNotBlank()) "没有找到匹配的电脑主机" else "尚未添加电脑主机",
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 15.sp,
               fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
               text = "点击右下角「+」即可配置电脑的 SSH IP 地址和端口",
-              color = Color.Gray,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               fontSize = 12.sp
             )
           }
@@ -362,10 +372,11 @@ fun HostListScreen(
               onShowHealthDetail = { hostForHealthDetail = host },
               onToggleStar = { viewModel.toggleHostStar(host) },
               onEdit = { hostToEdit = host },
-              onDelete = { viewModel.deleteHost(host) }
+              onDelete = { hostToDelete = host }
             )
           }
         }
+      }
       }
     }
   }
@@ -379,6 +390,7 @@ fun HostListScreen(
         viewModel.saveHost(it)
         showAddDialog = false
       },
+      onFeedback = { text, isError -> viewModel.showMessage(text, isError) },
       onDismiss = { showAddDialog = false }
     )
   }
@@ -391,6 +403,7 @@ fun HostListScreen(
         viewModel.saveHost(it)
         hostToEdit = null
       },
+      onFeedback = { text, isError -> viewModel.showMessage(text, isError) },
       onDismiss = { hostToEdit = null }
     )
   }
@@ -403,7 +416,27 @@ fun HostListScreen(
       onConnectTerminal = {
         viewModel.connectToHost(host)
       },
+      onFeedback = { viewModel.showMessage(it) },
       onDismiss = { hostForHealthDetail = null }
+    )
+  }
+
+  // 删除主机二次确认
+  hostToDelete?.let { host ->
+    val hasActiveSessions = sessions.any { it.host.id == host.id }
+    ConfirmDeleteDialog(
+      title = "删除主机",
+      targetName = host.name,
+      detail = if (hasActiveSessions) {
+        "该主机仍有活跃终端会话，删除将断开连接并移除保存的登录配置，操作无法恢复。"
+      } else {
+        "将移除保存的 IP、端口与登录方式等配置，操作无法恢复。"
+      },
+      onConfirm = {
+        viewModel.deleteHost(host)
+        hostToDelete = null
+      },
+      onDismiss = { hostToDelete = null }
     )
   }
 }
@@ -463,7 +496,7 @@ private fun HostCardItem(
               Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                   text = host.name,
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onSurface,
                   fontSize = 15.sp,
                   fontWeight = FontWeight.Bold
                 )
@@ -493,7 +526,7 @@ private fun HostCardItem(
               }
             Text(
               text = "${host.username}@${host.host}:${host.port}",
-              color = Color.LightGray,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               fontSize = 12.sp,
               fontFamily = FontFamily.Monospace
             )
@@ -505,14 +538,14 @@ private fun HostCardItem(
             Icon(
               imageVector = if (host.isStarred) Icons.Default.Star else Icons.Default.StarBorder,
               contentDescription = "收藏",
-              tint = if (host.isStarred) Color(0xFFF59E0B) else Color.Gray,
+              tint = if (host.isStarred) AmberWarning else MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(20.dp)
             )
           }
 
           Box {
             IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
-              Icon(Icons.Default.MoreVert, contentDescription = "更多选项", tint = Color.Gray)
+              Icon(Icons.Default.MoreVert, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(
               expanded = menuExpanded,
@@ -520,7 +553,7 @@ private fun HostCardItem(
               modifier = Modifier.background(Slate800)
             ) {
               DropdownMenuItem(
-                text = { Text("在新建标签页打开", color = Color.White) },
+                text = { Text("在新建标签页打开", color = MaterialTheme.colorScheme.onSurface) },
                 leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = CyanAccent) },
                 onClick = {
                   menuExpanded = false
@@ -528,15 +561,15 @@ private fun HostCardItem(
                 }
               )
               DropdownMenuItem(
-                text = { Text("编辑配置", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White) },
+                text = { Text("编辑配置", color = MaterialTheme.colorScheme.onSurface) },
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
                 onClick = {
                   menuExpanded = false
                   onEdit()
                 }
               )
               DropdownMenuItem(
-                text = { Text("主机健康监控看板", color = Color.White) },
+                text = { Text("主机健康监控看板", color = MaterialTheme.colorScheme.onSurface) },
                 leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent) },
                 onClick = {
                   menuExpanded = false
@@ -544,8 +577,8 @@ private fun HostCardItem(
                 }
               )
               DropdownMenuItem(
-                text = { Text("测试 Ping 连通性", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.NetworkCheck, contentDescription = null, tint = Color.White) },
+                text = { Text("测试 Ping 连通性", color = MaterialTheme.colorScheme.onSurface) },
+                leadingIcon = { Icon(Icons.Default.NetworkCheck, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
                 onClick = {
                   menuExpanded = false
                   onTestPing()
@@ -586,7 +619,7 @@ private fun HostCardItem(
             health?.isOnline == false -> Pair(RoseError, "连接超时")
             isOnline == true -> Pair(EmeraldSuccess, "连通良好")
             isOnline == false -> Pair(RoseError, "连接超时")
-            else -> Pair(Color.Gray, "未探测")
+            else -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "未探测")
           }
           Box(
             modifier = Modifier
@@ -600,7 +633,7 @@ private fun HostCardItem(
           Spacer(modifier = Modifier.width(10.dp))
           Text(
             text = if (host.authType == AuthType.PASSWORD) "密码认证" else "密钥认证",
-            color = Color.LightGray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp
           )
         }
@@ -634,16 +667,16 @@ private fun HostCardItem(
           verticalAlignment = Alignment.CenterVertically
         ) {
           if (health.cpuUsagePercent != null) {
-            Text("💻 CPU ${health.cpuUsagePercent}%", color = Color.LightGray, fontSize = 11.sp)
+            Text("💻 CPU ${health.cpuUsagePercent}%", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
           }
           if (health.memUsagePercent != null) {
             val memText = health.memUsedMb?.let { used ->
               if (used > 1024) String.format("%.1fG", used / 1024f) else "${used}M"
             } ?: ""
-            Text("🧠 RAM ${health.memUsagePercent}% $memText", color = Color.LightGray, fontSize = 11.sp)
+            Text("🧠 RAM ${health.memUsagePercent}% $memText", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
           }
           if (health.diskUsagePercent != null) {
-            Text("💾 磁盘 ${health.diskUsagePercent}%", color = Color.LightGray, fontSize = 11.sp)
+            Text("💾 磁盘 ${health.diskUsagePercent}%", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
           }
         }
       }
@@ -664,11 +697,11 @@ private fun HostCardItem(
             .height(38.dp)
             .testTag("btn_connect_${host.id}")
         ) {
-          Icon(Icons.Default.Terminal, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+          Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(6.dp))
           Text(
             text = if (activeSessionsCount > 0) "进入终端 ($activeSessionsCount)" else "连接终端",
-            color = Color.Black,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp
           )
@@ -693,9 +726,9 @@ private fun HostCardItem(
             .height(38.dp)
             .testTag("btn_sandbox_${host.id}")
         ) {
-          Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+          Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("沙箱", color = Color.Gray, fontSize = 12.sp)
+          Text("沙箱", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
       }
     }

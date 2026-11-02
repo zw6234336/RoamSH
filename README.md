@@ -41,8 +41,8 @@
   - Comprehensive Host Health Probe Detail dialog with CPU utilization, RAM usage, storage space, and top resource-consuming processes (`dockerd`, `node`, `redis-server`, `sshd`).
 - **🎛️ Dedicated Tmux / Screen Control Bar (Tmux Mode)**:
   - Dual-tier visual control bar optimized for mobile terminal multiplexing:
-    - **Tier 1 (Visual Window Tabs)**: Replicates native tab ergonomics directly inside tmux (`0: window 1`, `1: window 2`, `+` new window, `x` kill window, and quick window jumping).
-    - **Tier 2 (Touch Tools & Panes)**: One-tap mouse mode toggle (`🖱️ 触控滚屏`) enabling direct finger flick scrolling inside tmux without entering copy mode, split pane horizontally/vertically (`%`, `"`), pane navigation, pane zoom (`z`), and synchronize panes.
+    - **Tier 1 (Real Window Tabs)**: Reads actual `tmux list-windows` state over a dedicated exec channel — shows the session name and window list (active marker, pane counts) with tap-to-switch, `+` new window, long-press rename, and `x` kill with confirmation. Shows an honest hint when no tmux server is running.
+    - **Tier 2 (Touch & Session Tools)**: One-tap mouse mode toggle (`🖱️ 触控滚屏`, synced with the remote mouse option) enabling direct finger flick scrolling inside tmux without entering copy mode, ▲▼ page flip, and `🔌 detach`. Pane/split operations were removed for the mobile form factor — screens are too small to split usefully; split panes on your desktop instead.
 - **⌨️ Dual-Layer Developer Quick Keyboard Bar**:
   - Purpose-built for touchscreen coding: `ESC`, `TAB`, `Ctrl-C`, `Ctrl-D`, `Ctrl`, `Alt` modifier toggles, directional arrows, and high-frequency code symbols (`|`, `~`, `/`, `\`) accessible in one tap.
   - Native virtual keyboard (IME) integration with fluid Chinese/English input, shell auto-completion (including `agy` completions), and command snippet insertion.

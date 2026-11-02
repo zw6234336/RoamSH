@@ -5,9 +5,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -35,7 +35,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -44,22 +43,30 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TextIncrease
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WrapText
 import com.example.ui.AppScreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
@@ -81,11 +88,18 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -97,6 +111,7 @@ import com.example.ssh.SshConnectionState
 import com.example.ssh.TerminalLine
 import com.example.ui.DevSshViewModel
 import com.example.ui.components.ExtendedKeyboardBar
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
@@ -139,6 +154,16 @@ fun TerminalScreen(
 
   val inputFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
+  // Terminal clipboard affordances: long-press the output viewport to copy/paste
+  val hapticFeedback = LocalHapticFeedback.current
+  var showClipboardSheet by remember { mutableStateOf(false) }
+
+  // One-shot hint when swiping inside an alternate-screen app (tmux) that has NOT
+  // enabled mouse reporting: without it the swipe cannot reach tmux's remote
+  // history. Offer the exec-channel fix right where the gesture failed.
+  var showTmuxScrollHint by remember { mutableStateOf(false) }
+  var tmuxScrollHintDismissed by remember { mutableStateOf(false) }
+
   // Runtime notification permission launcher for Android 13+
   val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
     contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -166,24 +191,32 @@ fun TerminalScreen(
 
   val coroutineScope = rememberCoroutineScope()
 
-  // Auto scroll to bottom when new terminal output arrives (only if autoScroll is active)
+  // Auto scroll to bottom when new terminal output arrives, only while following is on
+  // and the user isn't mid-scroll. Swiping up pauses following (below); a plain list
+  // otherwise handles all touch scrolling natively.
   LaunchedEffect(lines.size, lines.lastOrNull()?.plainText, autoScroll) {
-    if (autoScroll && lines.isNotEmpty()) {
+    if (autoScroll && lines.isNotEmpty() && !listState.isScrollInProgress) {
       try {
         listState.scrollToItem((lines.size - 1).coerceAtLeast(0))
       } catch (_: Throwable) {}
     }
   }
 
-  // Automatically pause autoScroll when user scrolls up away from the bottom to read history/AI responses
-  LaunchedEffect(listState.isScrollInProgress) {
-    if (listState.isScrollInProgress) {
-      val isAtBottom = !listState.canScrollForward
-      if (!isAtBottom && autoScroll) {
-        viewModel.setAutoScroll(false)
-      } else if (isAtBottom && !autoScroll) {
-        viewModel.setAutoScroll(true)
+  // Pause autoScroll when a scroll gesture ENDS with the viewport away from the bottom;
+  // resume when it settles back at (or within ~2 rows of) the bottom so a fling that
+  // stops just short still re-engages follow mode. Deciding at gesture START is
+  // unreliable: the first frame of an upward drag still reports "at bottom", and
+  // programmatic scrollToItem also flips isScrollInProgress, so it never disabled.
+  LaunchedEffect(Unit) {
+    var wasScrolling = false
+    androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+      if (wasScrolling && !scrolling) {
+        val info = listState.layoutInfo
+        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+        val nearBottom = info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 2
+        viewModel.setAutoScroll(nearBottom)
       }
+      wasScrolling = scrolling
     }
   }
 
@@ -287,6 +320,52 @@ fun TerminalScreen(
     }
 
     // 2. Terminal Main Output Viewport
+    // Plain scrollable area: swiping behaves like a normal list. When the list cannot
+    // scroll any further (e.g. a full-screen tmux whose history lives on the remote),
+    // the leftover swipe distance is forwarded to the remote as mouse-wheel events, so
+    // tmux/vim scroll their own history. Only active when the remote enabled mouse
+    // reporting (DECSET 1000/1002/1003), so a plain shell never sees wheel garbage.
+    val wheelAccumulator = remember { FloatArray(1) }
+    val wheelConnection = remember(viewModel, activeSession, charHeightPx) {
+      val sshManager = activeSession?.sshManager
+      object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        override fun onPostScroll(
+          consumed: androidx.compose.ui.geometry.Offset,
+          available: androidx.compose.ui.geometry.Offset,
+          source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+        ): androidx.compose.ui.geometry.Offset {
+          if (source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput ||
+            available.y == 0f || charHeightPx <= 0f
+          ) {
+            return androidx.compose.ui.geometry.Offset.Zero
+          }
+          val parser = sshManager?.terminalParser
+          if (parser?.isMouseReporting != true) {
+            wheelAccumulator[0] = 0f
+            // tmux (alternate screen) without mouse reporting: the swipe can never
+            // reach remote history — surface the one-tap enable hint instead.
+            if (parser?.isAlternateScreen == true && !tmuxScrollHintDismissed && !showTmuxScrollHint) {
+              showTmuxScrollHint = true
+            }
+            return androidx.compose.ui.geometry.Offset.Zero
+          }
+          wheelAccumulator[0] += available.y
+          val steps = (wheelAccumulator[0] / charHeightPx).toInt()
+          if (steps == 0) return androidx.compose.ui.geometry.Offset.Zero
+          wheelAccumulator[0] -= steps * charHeightPx
+          // SGR wheel at the screen center: 64 = wheel up, 65 = wheel down (1-based cells).
+          val cellRow = (parser.rows / 2).coerceAtLeast(1)
+          val cellCol = (parser.cols / 2).coerceAtLeast(1)
+          val seq = if (steps > 0) {
+            buildString { repeat(steps) { append("\u001b[<65;$cellCol;${cellRow}M") } }
+          } else {
+            buildString { repeat(-steps) { append("\u001b[<64;$cellCol;${cellRow}M") } }
+          }
+          viewModel.sendTerminalInput(seq)
+          return available
+        }
+      }
+    }
     Box(
       modifier = Modifier
         .weight(1f)
@@ -298,10 +377,16 @@ fun TerminalScreen(
             terminalHeightPx = size.height
           }
         }
+        .nestedScroll(wheelConnection)
         .pointerInput(Unit) {
           detectTapGestures(
-            onTap = {
-              inputFocusRequester.requestFocus()
+            // Tap focuses the hidden terminal input so the soft keyboard can come up;
+            // long-press opens the copy/paste sheet — the only way to get terminal
+            // output into the clipboard since the viewport is a custom Canvas grid.
+            onTap = { inputFocusRequester.requestFocus() },
+            onLongPress = {
+              hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+              showClipboardSheet = true
             }
           )
         }
@@ -353,10 +438,64 @@ fun TerminalScreen(
                 line = line,
                 fontSize = fontSize,
                 defaultColor = theme.foreground,
+                charWidthPx = charWidthPx,
+                charHeightPx = charHeightPx,
                 softWrap = isLineWrapEnabled
               )
             }
           }
+        }
+      }
+
+      // tmux 触控滚屏引导（备用屏 + 未开 mouse 时滑动触发，一次性）
+      if (showTmuxScrollHint) {
+        Row(
+          modifier = Modifier
+            .align(Alignment.BottomStart)
+            .padding(12.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xEE1E293B))
+            .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text(
+            text = "滑动查看 tmux 历史需开启触控滚屏",
+            color = Color.White,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(start = 12.dp)
+          )
+          Text(
+            text = "开启",
+            color = Color.Black,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+              .padding(horizontal = 8.dp, vertical = 6.dp)
+              .clip(RoundedCornerShape(14.dp))
+              .background(CyanAccent)
+              .clickable {
+                showTmuxScrollHint = false
+                tmuxScrollHintDismissed = true
+                coroutineScope.launch {
+                  if (viewModel.setTmuxMouse(true)) {
+                    viewModel.setAutoScroll(true)
+                  }
+                }
+              }
+              .padding(horizontal = 10.dp, vertical = 4.dp)
+          )
+          Icon(
+            imageVector = Icons.Default.Clear,
+            contentDescription = "忽略提示",
+            tint = Color.LightGray,
+            modifier = Modifier
+              .clickable {
+                showTmuxScrollHint = false
+                tmuxScrollHintDismissed = true
+              }
+              .padding(6.dp)
+              .size(14.dp)
+          )
         }
       }
 
@@ -447,6 +586,10 @@ fun TerminalScreen(
       TmuxControlBar(
         onSendRawInput = { viewModel.sendTerminalInput(it) },
         onSendSpecialKey = { viewModel.sendSpecialKey(it) },
+        onQueryTmuxState = { viewModel.queryTmuxState() },
+        onSetTmuxMouse = { viewModel.setTmuxMouse(it) },
+        shouldAutoEnableMouse = { viewModel.userTmuxMousePreference == null },
+        onFeedback = { viewModel.showMessage(it) },
         onCloseBar = { isTmuxModeActive = false }
       )
     }
@@ -466,7 +609,8 @@ fun TerminalScreen(
       onSendRawInput = { viewModel.sendTerminalInput(it) },
       onRequestCompletion = { tfv, cycle ->
         viewModel.requestLinuxCompletion(tfv, cycle)
-      }
+      },
+      onFeedback = { viewModel.showMessage(it) }
     )
   }
 
@@ -480,7 +624,7 @@ fun TerminalScreen(
           Icon(
             imageVector = Icons.Default.Lock,
             contentDescription = null,
-            tint = if (isKeepAliveEnabled) EmeraldSuccess else Color.Gray
+            tint = if (isKeepAliveEnabled) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant
           )
           Spacer(modifier = Modifier.width(8.dp))
           Text(text = "SSH 后台连接保活设置", fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -496,7 +640,7 @@ fun TerminalScreen(
           )
           Text(
             text = "工作机制:\n• 开启后启动系统前台服务与通知栏常驻卡片，防止系统杀后台。\n• 自动获取 CPU 浅度唤醒锁 (WakeLock)，手机熄屏仍持续运行。\n• 底层定期发送 SSH 心跳包 (ServerAliveInterval=15s)，防止路由器超时断网。\n• 即使切到微信、浏览器或其它软件，远程长耗时编译或服务绝不断联！",
-            color = Color.LightGray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp,
             lineHeight = 17.sp
           )
@@ -514,7 +658,7 @@ fun TerminalScreen(
         ) {
           Text(
             text = if (isKeepAliveEnabled) "关闭后台保活" else "开启后台保活",
-            color = Color.Black,
+            color = if (isKeepAliveEnabled) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.Bold
           )
         }
@@ -541,6 +685,151 @@ fun TerminalScreen(
       },
       onDismiss = { showThemeDialog = false }
     )
+  }
+
+  // Long-press copy/paste sheet for the terminal viewport
+  if (showClipboardSheet) {
+    TerminalClipboardSheet(
+      lines = lines,
+      listState = listState,
+      isConnected = connectionState is SshConnectionState.Connected,
+      onPasteToTerminal = { text ->
+        viewModel.sendTerminalInput(text)
+      },
+      onFeedback = { viewModel.showMessage(it) },
+      onDismiss = { showClipboardSheet = false }
+    )
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TerminalClipboardSheet(
+  lines: List<TerminalLine>,
+  listState: androidx.compose.foundation.lazy.LazyListState,
+  isConnected: Boolean,
+  onPasteToTerminal: (String) -> Unit,
+  onFeedback: (String) -> Unit = {},
+  onDismiss: () -> Unit
+) {
+  val clipboard = LocalClipboardManager.current
+  val clipboardText = clipboard.getText()?.text?.trim().orEmpty()
+
+  fun copyToClipboard(text: String, lineCount: Int) {
+    clipboard.setText(AnnotatedString(text))
+    onFeedback("已复制 $lineCount 行终端输出")
+    onDismiss()
+  }
+
+  ModalBottomSheet(
+    onDismissRequest = onDismiss,
+    containerColor = Slate900
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 20.dp)
+        .padding(bottom = 24.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Text(
+        text = "终端复制 / 粘贴",
+        color = MaterialTheme.colorScheme.onSurface,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold
+      )
+      Text(
+        text = "长按终端输出区域可随时呼出此面板",
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 11.sp
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+
+      // Visible portion of the scrollback (matches what's on screen right now)
+      val visibleText = listState.layoutInfo.visibleItemsInfo
+        .mapNotNull { lines.getOrNull(it.index)?.plainText }
+
+      ClipboardSheetAction(
+        icon = Icons.Default.ContentCopy,
+        title = "复制屏幕可见输出",
+        subtitle = "当前视口内的 ${visibleText.size} 行内容",
+        enabled = visibleText.isNotEmpty(),
+        onClick = { copyToClipboard(visibleText.joinToString("\n"), visibleText.size) }
+      )
+      ClipboardSheetAction(
+        icon = Icons.Default.ContentCopy,
+        title = "复制最近 100 行",
+        subtitle = "适合快速分享报错上下文",
+        enabled = lines.isNotEmpty(),
+        onClick = {
+          val recent = lines.takeLast(100)
+          copyToClipboard(recent.joinToString("\n") { it.plainText }, recent.size)
+        }
+      )
+      ClipboardSheetAction(
+        icon = Icons.Default.ContentCopy,
+        title = "复制全部输出",
+        subtitle = "回滚缓冲区共 ${lines.size} 行",
+        enabled = lines.isNotEmpty(),
+        onClick = {
+          copyToClipboard(lines.joinToString("\n") { it.plainText }, lines.size)
+        }
+      )
+      ClipboardSheetAction(
+        icon = Icons.Default.ContentPaste,
+        title = "粘贴到终端",
+        subtitle = if (isConnected) {
+          if (clipboardText.contains('\n')) "剪贴板为多行内容，将逐行发送并执行" else "将剪贴板内容发送到远程终端"
+        } else {
+          "终端未连接，无法粘贴"
+        },
+        enabled = isConnected && clipboardText.isNotEmpty(),
+        tint = EmeraldSuccess,
+        onClick = {
+          val payload = clipboardText.replace("\r\n", "\n").replace("\n", "\r")
+          onPasteToTerminal(payload)
+          onFeedback("已粘贴 ${clipboardText.length} 个字符到终端")
+          onDismiss()
+        }
+      )
+    }
+  }
+}
+
+@Composable
+private fun ClipboardSheetAction(
+  icon: ImageVector,
+  title: String,
+  subtitle: String,
+  enabled: Boolean = true,
+  tint: Color = CyanAccent,
+  onClick: () -> Unit
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(10.dp))
+      .background(if (enabled) Slate800 else Slate800.copy(alpha = 0.4f))
+      .clickable(enabled = enabled) { onClick() }
+      .padding(horizontal = 14.dp, vertical = 12.dp),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    Icon(
+      imageVector = icon,
+      contentDescription = null,
+      tint = if (enabled) tint else MaterialTheme.colorScheme.onSurfaceVariant,
+      modifier = Modifier.size(20.dp)
+    )
+    Spacer(modifier = Modifier.width(12.dp))
+    Column {
+      Text(
+        text = title,
+        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium
+      )
+      Text(text = subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+    }
   }
 }
 
@@ -586,13 +875,13 @@ private fun TerminalTopBar(
       ) {
         IconButton(
           onClick = onBack,
-          modifier = Modifier.size(28.dp)
+          modifier = Modifier.size(34.dp)
         ) {
           Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "返回主机列表",
-            tint = Color.White,
-            modifier = Modifier.size(18.dp)
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(20.dp)
           )
         }
         Spacer(modifier = Modifier.width(2.dp))
@@ -600,14 +889,14 @@ private fun TerminalTopBar(
         val (dotColor, statusText) = when (connectionState) {
           is SshConnectionState.Connected -> {
             if (connectionState.isSimulated) {
-              Pair(Color(0xFF38BDF8), "${connectionState.hostName}")
+              Pair(CyanAccent, "${connectionState.hostName}")
             } else {
               Pair(EmeraldSuccess, "${connectionState.hostName}")
             }
           }
-          is SshConnectionState.Connecting -> Pair(Color(0xFFF59E0B), connectionState.message)
+          is SshConnectionState.Connecting -> Pair(AmberWarning, connectionState.message)
           is SshConnectionState.Error -> Pair(RoseError, "连接异常")
-          is SshConnectionState.Disconnected -> Pair(Color.Gray, "已断开")
+          is SshConnectionState.Disconnected -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "已断开")
         }
 
         Box(
@@ -619,14 +908,17 @@ private fun TerminalTopBar(
         Spacer(modifier = Modifier.width(4.dp))
         Text(
           text = statusText,
-          color = Color.White,
+          color = MaterialTheme.colorScheme.onSurface,
           fontSize = 12.sp,
           fontWeight = FontWeight.Bold,
           maxLines = 1
         )
       }
 
-      // Right: Quick Terminal Controls
+      // Right: Quick Terminal Controls — high-frequency actions (font size, overflow
+      // menu, connection) get proper touch targets; lower-frequency toggles (wrap,
+      // tmux bar, autoscroll, keepalive, clear, theme, settings) move into the
+      // overflow menu instead of cramming a dozen 24dp controls into one row.
       Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -652,130 +944,168 @@ private fun TerminalTopBar(
           }
         }
 
-        // Line Wrap / Layout Protection Toggle
-        Box(
-          modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(if (isLineWrapEnabled) Color(0xFF1E3A8A) else Slate800)
-            .clickable(onClick = onToggleLineWrap)
-            .padding(horizontal = 6.dp, vertical = 3.dp)
-            .testTag("btn_toggle_wrap")
-        ) {
-          Text(
-            text = if (isLineWrapEnabled) "折行" else "对齐",
-            color = if (isLineWrapEnabled) Color(0xFF60A5FA) else CyanAccent,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-          )
-        }
-
-        // Tmux Quick Toggle Pill in TopBar
-        Box(
-          modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(if (isTmuxActive) CyanAccent.copy(alpha = 0.25f) else Slate800)
-            .border(1.dp, if (isTmuxActive) CyanAccent else Slate700, RoundedCornerShape(4.dp))
-            .clickable(onClick = onToggleTmux)
-            .padding(horizontal = 6.dp, vertical = 3.dp)
-            .testTag("btn_topbar_tmux")
-        ) {
-          Text(
-            text = "Tmux",
-            color = if (isTmuxActive) CyanAccent else Color.LightGray,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-          )
-        }
-
-        // Keepalive indicator & toggle
-        IconButton(onClick = onToggleKeepAlive, modifier = Modifier.size(28.dp)) {
-          Icon(
-            imageVector = Icons.Default.Lock,
-            contentDescription = "后台保活状态",
-            tint = if (isKeepAliveEnabled) EmeraldSuccess else Color.Gray,
-            modifier = Modifier.size(16.dp)
-          )
-        }
+        // Line wrap / tmux / keepalive toggles moved into the overflow menu below
+        // (previously three cramped 24-28dp controls sat here).
 
         // Font size control
+        IconButton(onClick = onDecreaseFont, modifier = Modifier.size(34.dp)) {
+          Text("-", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
         Text(
           text = "${fontSize}sp",
-          color = Color.Gray,
+          color = CyanAccent,
           fontSize = 11.sp,
           fontFamily = FontFamily.Monospace,
           modifier = Modifier.padding(horizontal = 1.dp)
         )
-        IconButton(onClick = onDecreaseFont, modifier = Modifier.size(24.dp)) {
-          Text("-", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        }
-        IconButton(onClick = onIncreaseFont, modifier = Modifier.size(24.dp)) {
-          Text("+", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        IconButton(onClick = onIncreaseFont, modifier = Modifier.size(34.dp)) {
+          Text("+", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
-        // Auto-scroll toggle
-        IconButton(onClick = onToggleAutoScroll, modifier = Modifier.size(28.dp)) {
-          Icon(
-            imageVector = if (autoScroll) Icons.Default.LockOpen else Icons.Default.Lock,
-            contentDescription = "自动滚动",
-            tint = if (autoScroll) CyanAccent else Color.Gray,
-            modifier = Modifier.size(16.dp)
-          )
-        }
-
-        // Quick Theme picker
-        IconButton(onClick = onOpenThemePicker, modifier = Modifier.size(28.dp)) {
-          Icon(
-            imageVector = Icons.Default.ColorLens,
-            contentDescription = "终端主题",
-            tint = Color.White,
-            modifier = Modifier.size(16.dp)
-          )
-        }
-
-        // Full Terminal Settings & Appearance
-        IconButton(
-          onClick = onOpenSettings,
-          modifier = Modifier
-            .size(28.dp)
-            .testTag("btn_terminal_settings")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Settings,
-            contentDescription = "终端外观与偏好设置",
-            tint = CyanAccent,
-            modifier = Modifier.size(16.dp)
-          )
-        }
-
-        // Clear
-        IconButton(onClick = onClearTerminal, modifier = Modifier.size(28.dp)) {
-          Icon(
-            imageVector = Icons.Default.Clear,
-            contentDescription = "清屏",
-            tint = Color.White,
-            modifier = Modifier.size(16.dp)
-          )
+        // Overflow menu for lower-frequency terminal toggles
+        Box {
+          var menuExpanded by remember { mutableStateOf(false) }
+          IconButton(
+            onClick = { menuExpanded = true },
+            modifier = Modifier
+              .size(34.dp)
+              .testTag("btn_terminal_more")
+          ) {
+            Icon(
+              imageVector = Icons.Default.MoreVert,
+              contentDescription = "更多终端操作",
+              tint = MaterialTheme.colorScheme.onSurface,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+          DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+            containerColor = Slate800
+          ) {
+            DropdownMenuItem(
+              text = {
+                Text(
+                  if (isLineWrapEnabled) "自动折行：开" else "自动折行：关",
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              },
+              leadingIcon = {
+                Icon(Icons.Default.WrapText, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(18.dp))
+              },
+              onClick = {
+                menuExpanded = false
+                onToggleLineWrap()
+              },
+              modifier = Modifier.testTag("btn_toggle_wrap")
+            )
+            DropdownMenuItem(
+              text = {
+                Text(
+                  if (isTmuxActive) "Tmux 控制条：显示" else "Tmux 控制条：隐藏",
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              },
+              leadingIcon = {
+                Icon(Icons.Default.Terminal, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(18.dp))
+              },
+              onClick = {
+                menuExpanded = false
+                onToggleTmux()
+              },
+              modifier = Modifier.testTag("btn_topbar_tmux")
+            )
+            DropdownMenuItem(
+              text = {
+                Text(
+                  if (autoScroll) "跟随输出滚动：开" else "跟随输出滚动：关",
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              },
+              leadingIcon = {
+                Icon(
+                  if (autoScroll) Icons.Default.LockOpen else Icons.Default.Lock,
+                  contentDescription = null,
+                  tint = CyanAccent,
+                  modifier = Modifier.size(18.dp)
+                )
+              },
+              onClick = {
+                menuExpanded = false
+                onToggleAutoScroll()
+              }
+            )
+            DropdownMenuItem(
+              text = { Text("清空屏幕输出", color = MaterialTheme.colorScheme.onSurface) },
+              leadingIcon = {
+                Icon(Icons.Default.Clear, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+              },
+              onClick = {
+                menuExpanded = false
+                onClearTerminal()
+              }
+            )
+            DropdownMenuItem(
+              text = { Text("切换终端主题", color = MaterialTheme.colorScheme.onSurface) },
+              leadingIcon = {
+                Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+              },
+              onClick = {
+                menuExpanded = false
+                onOpenThemePicker()
+              }
+            )
+            DropdownMenuItem(
+              text = { Text("外观与偏好设置", color = MaterialTheme.colorScheme.onSurface) },
+              leadingIcon = {
+                Icon(Icons.Default.Settings, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(18.dp))
+              },
+              onClick = {
+                menuExpanded = false
+                onOpenSettings()
+              },
+              modifier = Modifier.testTag("btn_terminal_settings")
+            )
+            DropdownMenuItem(
+              text = {
+                Text(
+                  if (isKeepAliveEnabled) "后台保活：已开启" else "后台保活：已关闭",
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+              },
+              leadingIcon = {
+                Icon(
+                  Icons.Default.Lock,
+                  contentDescription = null,
+                  tint = if (isKeepAliveEnabled) EmeraldSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.size(18.dp)
+                )
+              },
+              onClick = {
+                menuExpanded = false
+                onToggleKeepAlive()
+              }
+            )
+          }
         }
 
         // Reconnect or Disconnect
         if (connectionState is SshConnectionState.Connected) {
-          IconButton(onClick = onDisconnect, modifier = Modifier.size(28.dp)) {
+          IconButton(onClick = onDisconnect, modifier = Modifier.size(34.dp)) {
             Icon(
               imageVector = Icons.Default.PowerSettingsNew,
               contentDescription = "断开连接",
               tint = RoseError,
-              modifier = Modifier.size(16.dp)
+              modifier = Modifier.size(20.dp)
             )
           }
         } else {
-          IconButton(onClick = onReconnect, modifier = Modifier.size(28.dp)) {
+          IconButton(onClick = onReconnect, modifier = Modifier.size(34.dp)) {
             Icon(
               imageVector = Icons.Default.Refresh,
               contentDescription = "重新连接",
               tint = CyanAccent,
-              modifier = Modifier.size(16.dp)
+              modifier = Modifier.size(20.dp)
             )
           }
         }
@@ -789,40 +1119,64 @@ private fun TerminalLineItem(
   line: TerminalLine,
   fontSize: Int,
   defaultColor: Color,
+  charWidthPx: Float,
+  charHeightPx: Float,
   softWrap: Boolean = false
 ) {
-  val annotatedString = remember(line, defaultColor) {
-    if (line.segments.isEmpty()) {
-      AnnotatedString("")
-    } else {
-      buildAnnotatedString {
-        line.segments.forEach { seg ->
-          withStyle(
-            SpanStyle(
-              color = seg.fgColor ?: defaultColor,
-              background = seg.bgColor ?: Color.Transparent,
-              fontWeight = if (seg.bold) FontWeight.Bold else FontWeight.Normal,
-              textDecoration = if (seg.underline) TextDecoration.Underline else TextDecoration.None
-            )
-          ) {
-            append(seg.text)
-          }
-        }
-      }
+  val density = androidx.compose.ui.platform.LocalDensity.current
+
+  // Strict-grid renderer: every character is drawn at an exact multiple of the
+  // monospace cell width. Compose Text would lay box-drawing / CJK / block glyphs
+  // through fallback fonts with non-monospace advances and drift whole columns.
+  val paint = remember(fontSize, density) {
+    android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+      typeface = android.graphics.Typeface.MONOSPACE
+      textSize = with(density) { fontSize.sp.toPx() }
     }
   }
 
-  Text(
-    text = if (annotatedString.isEmpty()) AnnotatedString(" ") else annotatedString,
-    fontSize = fontSize.sp,
-    fontFamily = FontFamily.Monospace,
-    lineHeight = (fontSize * 1.18f).sp,
-    softWrap = softWrap,
-    minLines = 1,
-    style = TextStyle(
-      platformStyle = PlatformTextStyle(includeFontPadding = false)
-    )
-  )
+  val rowHeightDp = with(density) { charHeightPx.toDp() }
+
+  if (line.cells.isEmpty()) {
+    Spacer(modifier = Modifier.height(rowHeightDp))
+    return
+  }
+
+  Canvas(modifier = Modifier.fillMaxWidth().height(rowHeightDp)) {
+    val fm = paint.fontMetrics
+    val textHeight = fm.descent - fm.ascent
+    val baseline = (charHeightPx - textHeight) / 2f - fm.ascent
+
+    // Background pass (drawn first so glyphs stay on top)
+    for (i in line.cells.indices) {
+      val bg = line.cells[i].bg ?: continue
+      drawRect(
+        color = bg,
+        topLeft = Offset(x = i * charWidthPx, y = 0f),
+        size = Size(width = charWidthPx, height = charHeightPx)
+      )
+    }
+
+    // Glyph pass at exact grid positions; continuation cells render nothing
+    paint.style = android.graphics.Paint.Style.FILL
+    var i = 0
+    while (i < line.cells.size) {
+      val cell = line.cells[i]
+      val cellWidth = if (i + 1 < line.cells.size && line.cells[i + 1].isContinuation) 2 else 1
+      if (!cell.isContinuation && cell.char != ' ') {
+        paint.color = (cell.fg ?: defaultColor).toArgb()
+        paint.isFakeBoldText = cell.bold
+        paint.isUnderlineText = cell.underline
+        drawContext.canvas.nativeCanvas.drawText(
+          cell.char.toString(),
+          i * charWidthPx,
+          baseline,
+          paint
+        )
+      }
+      i += cellWidth
+    }
+  }
 }
 
 @Composable
@@ -873,9 +1227,9 @@ private fun EmptyTerminalPlaceholder(
             onClick = onStartSandbox,
             colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
           ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
             Spacer(modifier = Modifier.width(6.dp))
-            Text("启动本地模拟沙箱测试", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("启动本地模拟沙箱测试", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
           }
         }
         else -> {
@@ -896,9 +1250,9 @@ private fun EmptyTerminalPlaceholder(
             onClick = onStartSandbox,
             colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
           ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
             Spacer(modifier = Modifier.width(6.dp))
-            Text("立即进入开发者模拟沙箱", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("立即进入开发者模拟沙箱", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
           }
         }
       }

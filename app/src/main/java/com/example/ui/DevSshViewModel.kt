@@ -49,6 +49,17 @@ enum class AppScreen {
   SETTINGS
 }
 
+/**
+ * 瞬态 UI 反馈消息：由 ViewModel 发出、DevSshApp 顶层的 SnackbarHost 消费。
+ * 取代散落各处的 android.widget.Toast——Snackbar 不遮挡输入、跟随应用内
+ * 主题配色，并保证错误场景（连接失败等）有一致的可见反馈。
+ */
+data class UiMessage(
+  val id: Long = System.nanoTime(),
+  val text: String,
+  val isError: Boolean = false
+)
+
 class DevSshViewModel(application: Application) : AndroidViewModel(application) {
   private val database = AppDatabase.getDatabase(application)
   private val hostDao = database.hostDao()
@@ -95,6 +106,19 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
 
   private val _currentScreen = MutableStateFlow(AppScreen.HOSTS)
   val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
+
+  // Transient snackbar feedback channel (one message at a time)
+  private val _uiMessage = MutableStateFlow<UiMessage?>(null)
+  val uiMessage: StateFlow<UiMessage?> = _uiMessage.asStateFlow()
+
+  fun showMessage(text: String, isError: Boolean = false) {
+    if (text.isBlank()) return
+    _uiMessage.value = UiMessage(text = text, isError = isError)
+  }
+
+  fun consumeUiMessage() {
+    _uiMessage.value = null
+  }
 
   // Terminal UI customization & Readability
   private val _terminalFontSize = MutableStateFlow(14)
@@ -431,6 +455,13 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
         tunnels = currentTunnels,
         forceSimulation = forceSimulation
       )
+
+      // connect() suspends until the attempt settles; surface failures as an
+      // in-app snackbar (the terminal placeholder shows the same error in detail).
+      val finalState = newManager.connectionState.value
+      if (finalState is SshConnectionState.Error) {
+        showMessage("连接 ${host.name} 失败: ${finalState.message}", isError = true)
+      }
     }
   }
 
@@ -448,6 +479,26 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
 
   fun sendSpecialKey(code: String) {
     sshManager.sendInput(code)
+  }
+
+  /** Real tmux session state for the active terminal's connection (exec channel). */
+  suspend fun queryTmuxState(): com.example.ssh.TmuxSessionState = sshManager.queryTmuxState()
+
+  /**
+   * Toggles tmux mouse over the exec channel (no PTY injection). null = user has
+   * not expressed a preference this session; once they toggle explicitly we stop
+   * auto-enabling mouse when the tmux bar opens.
+   */
+  var userTmuxMousePreference: Boolean? = null
+    private set
+
+  suspend fun setTmuxMouse(enabled: Boolean): Boolean {
+    userTmuxMousePreference = enabled
+    val ok = sshManager.setTmuxMouse(enabled)
+    if (!ok) {
+      showMessage("未能修改 tmux mouse 配置（未运行 tmux 或连接不可用）", isError = true)
+    }
+    return ok
   }
 
   fun resizeTerminal(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
@@ -574,12 +625,14 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   fun saveHost(host: HostConfig) {
     viewModelScope.launch(Dispatchers.IO) {
       hostDao.insertHost(host)
+      showMessage("已保存主机 ${host.name}")
     }
   }
 
   fun deleteHost(host: HostConfig) {
     viewModelScope.launch(Dispatchers.IO) {
       hostDao.deleteHost(host)
+      showMessage("已删除主机 ${host.name}")
     }
   }
 
@@ -590,28 +643,42 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   // Key operations
+  private val _isGeneratingKey = MutableStateFlow(false)
+  val isGeneratingKey: StateFlow<Boolean> = _isGeneratingKey.asStateFlow()
+
   fun generateAndSaveKey(name: String, keyType: String = "RSA") {
+    if (_isGeneratingKey.value) return
+    _isGeneratingKey.value = true
     viewModelScope.launch(Dispatchers.IO) {
-      val generated = KeyGenerator.generateKey(keyType, "$name-roamsh")
-      val key = SshKey(
-        name = name,
-        keyType = generated.keyType,
-        publicKey = generated.publicKey,
-        privateKey = generated.privateKey
-      )
-      sshKeyDao.insertKey(key)
+      try {
+        val generated = KeyGenerator.generateKey(keyType, "$name-roamsh")
+        val key = SshKey(
+          name = name,
+          keyType = generated.keyType,
+          publicKey = generated.publicKey,
+          privateKey = generated.privateKey
+        )
+        sshKeyDao.insertKey(key)
+        showMessage("已生成密钥 $name (${generated.keyType})")
+      } catch (t: Throwable) {
+        showMessage("密钥生成失败: ${t.message ?: "未知错误"}", isError = true)
+      } finally {
+        _isGeneratingKey.value = false
+      }
     }
   }
 
   fun saveKey(key: SshKey) {
     viewModelScope.launch(Dispatchers.IO) {
       sshKeyDao.insertKey(key)
+      showMessage("已导入密钥 ${key.name}")
     }
   }
 
   fun deleteKey(key: SshKey) {
     viewModelScope.launch(Dispatchers.IO) {
       sshKeyDao.deleteKey(key)
+      showMessage("已删除密钥 ${key.name}")
     }
   }
 
@@ -619,12 +686,14 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   fun saveSnippet(snippet: Snippet) {
     viewModelScope.launch(Dispatchers.IO) {
       snippetDao.insertSnippet(snippet)
+      showMessage("已保存指令片段「${snippet.title}」")
     }
   }
 
   fun deleteSnippet(snippet: Snippet) {
     viewModelScope.launch(Dispatchers.IO) {
       snippetDao.deleteSnippet(snippet)
+      showMessage("已删除指令片段「${snippet.title}」")
     }
   }
 
@@ -632,6 +701,7 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   fun saveTunnel(tunnel: PortTunnel) {
     viewModelScope.launch(Dispatchers.IO) {
       portTunnelDao.insertTunnel(tunnel)
+      showMessage("已保存端口转发「${tunnel.name}」")
     }
   }
 
@@ -644,6 +714,7 @@ class DevSshViewModel(application: Application) : AndroidViewModel(application) 
   fun deleteTunnel(tunnel: PortTunnel) {
     viewModelScope.launch(Dispatchers.IO) {
       portTunnelDao.deleteTunnel(tunnel)
+      showMessage("已删除端口转发「${tunnel.name}」")
     }
   }
 }

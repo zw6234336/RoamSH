@@ -3,7 +3,6 @@ package com.example.ui.hosts
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -41,6 +40,7 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.HealthRating
 import com.example.data.model.HostConfig
 import com.example.data.model.HostHealthMetrics
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
@@ -68,6 +69,7 @@ import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.Slate950
+import androidx.lifecycle.repeatOnLifecycle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -78,16 +80,26 @@ fun HostHealthDetailDialog(
   health: HostHealthMetrics?,
   onRefresh: () -> Unit,
   onConnectTerminal: () -> Unit,
-  onDismiss: () -> Unit
+  onDismiss: () -> Unit,
+  onFeedback: (String) -> Unit = {}
 ) {
   val context = LocalContext.current
   val metrics = health ?: HostHealthMetrics(hostId = host.id)
 
-  // Auto-refresh while detail dialog is open (every 5 seconds)
-  androidx.compose.runtime.LaunchedEffect(host.id) {
-    while (true) {
-      kotlinx.coroutines.delay(5000L)
-      onRefresh()
+  // Auto-refresh while the dialog is open — but gated:
+  // 1) only while the app is RESUMED (no blind polling from background/lock screen);
+  // 2) paused while the host is known-offline (each probe of a dead host burns a
+  //    full connect timeout; the manual refresh button remains available).
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  val latestHealth by androidx.compose.runtime.rememberUpdatedState(health)
+  androidx.compose.runtime.LaunchedEffect(host.id, lifecycleOwner) {
+    lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+      while (true) {
+        kotlinx.coroutines.delay(5000L)
+        if (latestHealth?.isOnline != false) {
+          onRefresh()
+        }
+      }
     }
   }
 
@@ -124,7 +136,7 @@ fun HostHealthDetailDialog(
 
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("RoamSH Health Report", report))
-    Toast.makeText(context, "已复制体检报告到剪贴板", Toast.LENGTH_SHORT).show()
+    onFeedback("已复制体检报告到剪贴板")
   }
 
   AlertDialog(
@@ -142,7 +154,7 @@ fun HostHealthDetailDialog(
             modifier = Modifier
               .size(36.dp)
               .clip(RoundedCornerShape(8.dp))
-              .background(Color(0xFF0F264A)),
+              .background(Slate800),
             contentAlignment = Alignment.Center
           ) {
             Icon(Icons.Default.Speed, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(20.dp))
@@ -152,7 +164,7 @@ fun HostHealthDetailDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
               Text(
                 text = "${host.name} 健康看板",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold
               )
@@ -171,7 +183,7 @@ fun HostHealthDetailDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
               Text(
                 text = "${host.username}@${host.host}:${host.port}",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
               )
@@ -186,7 +198,7 @@ fun HostHealthDetailDialog(
         }
 
         IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-          Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color.Gray)
+          Icon(Icons.Default.Close, contentDescription = "关闭", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       }
     },
@@ -216,10 +228,10 @@ fun HostHealthDetailDialog(
               val (ratingColor, ratingText) = when (metrics.rating) {
                 HealthRating.EXCELLENT -> Pair(EmeraldSuccess, "极佳 (${metrics.latencyMs}ms)")
                 HealthRating.GOOD -> Pair(CyanAccent, "良好 (${metrics.latencyMs}ms)")
-                HealthRating.FAIR -> Pair(Color(0xFFF59E0B), "偏高 (${metrics.latencyMs}ms)")
+                HealthRating.FAIR -> Pair(AmberWarning, "偏高 (${metrics.latencyMs}ms)")
                 HealthRating.POOR -> Pair(RoseError, "较慢 (${metrics.latencyMs}ms)")
                 HealthRating.OFFLINE -> Pair(RoseError, "离线 / 超时")
-                HealthRating.UNCHECKED -> Pair(Color.Gray, "未探测")
+                HealthRating.UNCHECKED -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "未探测")
               }
 
               Box(
@@ -230,7 +242,7 @@ fun HostHealthDetailDialog(
               )
               Spacer(modifier = Modifier.width(8.dp))
               Column {
-                Text("网络延迟", fontSize = 11.sp, color = Color.Gray)
+                Text("网络延迟", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                   text = ratingText,
                   color = ratingColor,
@@ -242,10 +254,10 @@ fun HostHealthDetailDialog(
 
             if (metrics.uptimeText != null) {
               Column(horizontalAlignment = Alignment.End) {
-                Text("连续运行", fontSize = 11.sp, color = Color.Gray)
+                Text("连续运行", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                   text = metrics.uptimeText,
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onSurface,
                   fontSize = 12.sp,
                   fontWeight = FontWeight.Medium
                 )
@@ -268,7 +280,7 @@ fun HostHealthDetailDialog(
               Spacer(modifier = Modifier.width(6.dp))
               Text(
                 text = metrics.osName,
-                color = Color.LightGray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1
@@ -283,7 +295,7 @@ fun HostHealthDetailDialog(
           metrics.cpuUsagePercent?.let { cpu ->
             val cpuColor = when {
               cpu < 50f -> EmeraldSuccess
-              cpu < 80f -> Color(0xFFF59E0B)
+              cpu < 80f -> AmberWarning
               else -> RoseError
             }
 
@@ -303,7 +315,7 @@ fun HostHealthDetailDialog(
                   Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Speed, contentDescription = null, tint = cpuColor, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("CPU 使用率", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("CPU 使用率", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                   }
                   Text("$cpu%", color = cpuColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
@@ -326,12 +338,12 @@ fun HostHealthDetailDialog(
                   ) {
                     Text(
                       text = "负载 (1m / 5m / 15m)",
-                      color = Color.Gray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 11.sp
                     )
                     Text(
                       text = "${metrics.load1m} / ${metrics.load5m ?: "-"} / ${metrics.load15m ?: "-"}",
-                      color = Color.LightGray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 11.sp,
                       fontFamily = FontFamily.Monospace
                     )
@@ -345,7 +357,7 @@ fun HostHealthDetailDialog(
           metrics.memUsagePercent?.let { memPct ->
             val memColor = when {
               memPct < 60f -> EmeraldSuccess
-              memPct < 85f -> Color(0xFFF59E0B)
+              memPct < 85f -> AmberWarning
               else -> RoseError
             }
 
@@ -365,7 +377,7 @@ fun HostHealthDetailDialog(
                   Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Memory, contentDescription = null, tint = memColor, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("内存 (RAM)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("内存 (RAM)", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                   }
                   Text("$memPct%", color = memColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
@@ -387,8 +399,8 @@ fun HostHealthDetailDialog(
                   ) {
                     val usedStr = if (metrics.memUsedMb > 1024) String.format("%.1f GB", metrics.memUsedMb / 1024f) else "${metrics.memUsedMb} MB"
                     val totalStr = if (metrics.memTotalMb > 1024) String.format("%.1f GB", metrics.memTotalMb / 1024f) else "${metrics.memTotalMb} MB"
-                    Text("占用统计", color = Color.Gray, fontSize = 11.sp)
-                    Text("$usedStr / $totalStr", color = Color.LightGray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("占用统计", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    Text("$usedStr / $totalStr", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                   }
                 }
               }
@@ -399,7 +411,7 @@ fun HostHealthDetailDialog(
           metrics.diskUsagePercent?.let { diskPct ->
             val diskColor = when {
               diskPct < 70f -> EmeraldSuccess
-              diskPct < 90f -> Color(0xFFF59E0B)
+              diskPct < 90f -> AmberWarning
               else -> RoseError
             }
 
@@ -419,7 +431,7 @@ fun HostHealthDetailDialog(
                   Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Storage, contentDescription = null, tint = diskColor, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("根分区磁盘存储", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("根分区磁盘存储", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                   }
                   Text("$diskPct%", color = diskColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
@@ -439,8 +451,8 @@ fun HostHealthDetailDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                   ) {
-                    Text("挂载点 /", color = Color.Gray, fontSize = 11.sp)
-                    Text("${metrics.diskUsedGb} GB / ${metrics.diskTotalGb} GB", color = Color.LightGray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("挂载点 /", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    Text("${metrics.diskUsedGb} GB / ${metrics.diskTotalGb} GB", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                   }
                 }
               }
@@ -457,7 +469,7 @@ fun HostHealthDetailDialog(
                 .padding(12.dp)
             ) {
               Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("资源高占用进程 (TOP)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("资源高占用进程 (TOP)", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 metrics.topProcesses.forEach { proc ->
                   Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -466,7 +478,7 @@ fun HostHealthDetailDialog(
                   ) {
                     Text(
                       text = "${proc.pid} ${proc.name}",
-                      color = Color.LightGray,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                       fontSize = 11.sp,
                       fontFamily = FontFamily.Monospace,
                       maxLines = 1,
@@ -474,7 +486,7 @@ fun HostHealthDetailDialog(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                       Text("CPU: ${proc.cpuPercent}", color = CyanAccent, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                      Text("MEM: ${proc.memPercent}", color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                      Text("MEM: ${proc.memPercent}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                     }
                   }
                 }
@@ -486,7 +498,7 @@ fun HostHealthDetailDialog(
             modifier = Modifier
               .fillMaxWidth()
               .clip(RoundedCornerShape(8.dp))
-              .background(Color(0xFF2D1515))
+              .background(RoseError.copy(alpha = 0.12f))
               .padding(10.dp)
           ) {
             Text(
@@ -511,7 +523,7 @@ fun HostHealthDetailDialog(
         ) {
           Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(13.dp))
           Spacer(modifier = Modifier.width(3.dp))
-          Text("报告", fontSize = 11.sp, color = Color.White)
+          Text("报告", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
         }
 
         OutlinedButton(
@@ -529,7 +541,7 @@ fun HostHealthDetailDialog(
               .let { if (metrics.isProbing) it.rotate(angle) else it }
           )
           Spacer(modifier = Modifier.width(3.dp))
-          Text(if (metrics.isProbing) "体检中" else "刷新", fontSize = 11.sp, color = Color.White)
+          Text(if (metrics.isProbing) "体检中" else "刷新", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
         }
 
         Button(
@@ -542,9 +554,9 @@ fun HostHealthDetailDialog(
           modifier = Modifier.weight(1.4f).height(36.dp),
           shape = RoundedCornerShape(8.dp)
         ) {
-          Icon(Icons.Default.Terminal, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
+          Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(13.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("连接终端", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+          Text("连接终端", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
         }
       }
     },
