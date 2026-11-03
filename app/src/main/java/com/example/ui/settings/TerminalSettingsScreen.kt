@@ -416,7 +416,7 @@ fun TerminalSettingsScreen(
       item {
         SectionTitle(icon = Icons.Default.ColorLens, title = "选择配色主题 (Themes)")
         Text(
-          text = "支持开发者经典配色（含 Gruvbox、Dracula、Solarized、Nord 等），点击立即切换：",
+          text = "支持开发者经典配色（含 Gruvbox、Dracula、Solarized、Nord 等），点击立即切换，整个应用将跟随所选配色：",
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           fontSize = 11.sp,
           modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
@@ -457,7 +457,7 @@ fun TerminalSettingsScreen(
           Spacer(modifier = Modifier.width(6.dp))
           Text(
             text = "将当前主题与字号应用到所有主机",
-            color = Color.Black,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp
           )

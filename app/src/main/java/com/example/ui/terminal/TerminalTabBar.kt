@@ -319,13 +319,13 @@ fun TerminalTabBar(
               modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF06B6D4), Color(0xFF0284C7)))),
+                .background(Brush.linearGradient(listOf(CyanAccent, CyanAccent.copy(alpha = 0.72f)))),
               contentAlignment = Alignment.Center
             ) {
               Icon(
                 imageVector = Icons.Default.Layers,
                 contentDescription = null,
-                tint = Color.Black,
+                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(20.dp)
               )
             }

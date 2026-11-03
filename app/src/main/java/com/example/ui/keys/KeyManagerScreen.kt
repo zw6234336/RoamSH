@@ -65,6 +65,7 @@ import com.example.data.model.SshKey
 import com.example.ui.DevSshViewModel
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.theme.CyanAccent
+import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.RoseError
 import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
@@ -536,14 +537,14 @@ fun KeyManagerScreen(
             modifier = Modifier
               .fillMaxWidth()
               .clip(RoundedCornerShape(6.dp))
-              .background(Color(0xFF0F172A))
+              .background(Slate950)
               .padding(8.dp)
           ) {
             Text(
               text = "echo \"${key.publicKey}\" >> ~/.ssh/authorized_keys",
               fontFamily = FontFamily.Monospace,
               fontSize = 10.sp,
-              color = Color(0xFF86EFAC)
+              color = EmeraldSuccess
             )
           }
         }

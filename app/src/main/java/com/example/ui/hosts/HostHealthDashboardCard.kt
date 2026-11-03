@@ -57,6 +57,7 @@ import com.example.data.model.HostHealthMetrics
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
+import com.example.ui.theme.IndigoAccent
 import com.example.ui.theme.RoseError
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
@@ -100,7 +101,7 @@ fun HostHealthDashboardCard(
         width = 1.dp,
         brush = Brush.horizontalGradient(
           colors = listOf(
-            Color(0xFF1E3A8A).copy(alpha = 0.6f),
+            IndigoAccent.copy(alpha = 0.5f),
             CyanAccent.copy(alpha = 0.3f),
             Slate800
           )
@@ -186,7 +187,7 @@ fun HostHealthDashboardCard(
           Box(
             modifier = Modifier
               .clip(RoundedCornerShape(6.dp))
-              .background(if (isAutoRefreshEnabled) Color(0xFF064E3B).copy(alpha = 0.5f) else Slate800)
+              .background(if (isAutoRefreshEnabled) EmeraldSuccess.copy(alpha = 0.28f) else Slate800)
               .clickable { onToggleAutoRefresh() }
               .padding(horizontal = 6.dp, vertical = 3.dp)
           ) {

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -32,16 +33,19 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ssh.SshConnectionState
+import com.example.ssh.TerminalThemes
 import com.example.ui.hosts.HostListScreen
 import com.example.ui.keys.KeyManagerScreen
 import com.example.ui.settings.TerminalSettingsScreen
@@ -53,6 +57,8 @@ import com.example.ui.theme.RoseError
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.Slate950
+import com.example.ui.theme.TerminalDrivenTheme
+import com.example.ui.theme.isDarkScheme
 import com.example.ui.tunnels.TunnelsScreen
 
 import androidx.compose.foundation.layout.WindowInsets
@@ -69,6 +75,34 @@ fun DevSshApp(
   val connectionState by viewModel.sshManager.connectionState.collectAsState()
   val isImeVisible = WindowInsets.isImeVisible
 
+  // The selected terminal theme drives the whole app chrome: nav bar, cards,
+  // dialogs and the terminal viewport all follow the same palette.
+  val terminalThemeType by viewModel.terminalThemeType.collectAsState()
+  val terminalScheme = TerminalThemes.get(terminalThemeType)
+
+  // Keep status/navigation bar icon contrast correct even when a light terminal
+  // theme (e.g. Gruvbox Light) runs while the system stays in dark mode.
+  val view = LocalView.current
+  val isChromeDark = isDarkScheme(terminalScheme)
+  SideEffect {
+    val window = (view.context as? Activity)?.window ?: return@SideEffect
+    val controller = WindowCompat.getInsetsController(window, view)
+    controller.isAppearanceLightStatusBars = !isChromeDark
+    controller.isAppearanceLightNavigationBars = !isChromeDark
+  }
+
+  TerminalDrivenTheme(scheme = terminalScheme) {
+    DevSshAppContent(viewModel, currentScreen, isImeVisible)
+  }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun DevSshAppContent(
+  viewModel: DevSshViewModel,
+  currentScreen: AppScreen,
+  isImeVisible: Boolean
+) {
   // ---- Unified transient feedback: ViewModel messages -> app-level Snackbar ----
   val snackbarHostState = remember { SnackbarHostState() }
   val uiMessage by viewModel.uiMessage.collectAsState()
@@ -97,7 +131,8 @@ fun DevSshApp(
         Snackbar(
           snackbarData = data,
           containerColor = if (uiMessage?.isError == true) RoseError else Slate800,
-          contentColor = Color.White
+          contentColor = if (uiMessage?.isError == true) MaterialTheme.colorScheme.onError
+          else MaterialTheme.colorScheme.onSurface
         )
       }
     },

@@ -76,6 +76,7 @@ import com.example.ui.theme.AmberWarning
 import androidx.compose.material3.MaterialTheme
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
+import com.example.ui.theme.IndigoAccent
 import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
@@ -504,7 +505,7 @@ fun TmuxControlBar(
           modifier = Modifier
             .height(28.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isTouchScrollActive) Color(0xFF064E3B) else Slate900)
+            .background(if (isTouchScrollActive) EmeraldSuccess.copy(alpha = 0.30f) else Slate900)
             .border(1.dp, if (isTouchScrollActive) EmeraldSuccess else Slate700, RoundedCornerShape(6.dp))
             .clickable {
               vibrate()
@@ -574,7 +575,7 @@ fun TmuxControlBar(
         // Advanced Tools Dialog
         TmuxActionButton(
           label = "⚙ 更多工具",
-          activeColor = Color(0xFFC084FC),
+          activeColor = IndigoAccent,
           tag = "btn_tmux_more"
         ) {
           vibrate()

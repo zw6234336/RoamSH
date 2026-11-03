@@ -1,9 +1,10 @@
 package com.example.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Raw palette — the single source both Material color schemes in Theme.kt are built
@@ -47,8 +48,8 @@ internal object Palette {
 /**
  * Theme-aware aliases. The historical palette names are what every screen already
  * references; resolving them through MaterialTheme.colorScheme makes all of those
- * call sites follow the active light/dark scheme with zero call-site churn:
- * dark mode returns the exact legacy color, light mode a readable equivalent.
+ * call sites follow the active scheme (terminal-theme driven once a session theme
+ * is applied) with zero call-site churn.
  */
 val Slate950: Color
   @Composable get() = MaterialTheme.colorScheme.background
@@ -57,7 +58,11 @@ val Slate900: Color
   @Composable get() = MaterialTheme.colorScheme.surface
 
 val Slate850: Color
-  @Composable get() = MaterialTheme.colorScheme.surface
+  @Composable get() = lerp(
+    MaterialTheme.colorScheme.surface,
+    MaterialTheme.colorScheme.primary,
+    0.08f
+  )
 
 val Slate800: Color
   @Composable get() = MaterialTheme.colorScheme.surfaceVariant
@@ -78,7 +83,11 @@ val RoseError: Color
   @Composable get() = MaterialTheme.colorScheme.error
 
 val AmberWarning: Color
-  @Composable get() = if (isSystemInDarkTheme()) Palette.amberDark else Palette.amberLight
+  @Composable get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+    Palette.amberDark
+  } else {
+    Palette.amberLight
+  }
 
 val CyanAccentVariant: Color
   @Composable get() = MaterialTheme.colorScheme.primary

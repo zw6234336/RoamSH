@@ -454,19 +454,19 @@ fun TerminalScreen(
             .align(Alignment.BottomStart)
             .padding(12.dp)
             .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xEE1E293B))
+            .background(Slate800.copy(alpha = 0.93f))
             .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
             text = "滑动查看 tmux 历史需开启触控滚屏",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 11.sp,
             modifier = Modifier.padding(start = 12.dp)
           )
           Text(
             text = "开启",
-            color = Color.Black,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
@@ -512,7 +512,7 @@ fun TerminalScreen(
           Box(
             modifier = Modifier
               .clip(RoundedCornerShape(20.dp))
-              .background(Color(0xEE1E293B))
+              .background(Slate800.copy(alpha = 0.93f))
               .clickable {
                 coroutineScope.launch {
                   try {
@@ -545,7 +545,7 @@ fun TerminalScreen(
           Box(
             modifier = Modifier
               .clip(RoundedCornerShape(20.dp))
-              .background(Color(0xEE0F172A))
+              .background(Slate900.copy(alpha = 0.93f))
               .clickable {
                 viewModel.setAutoScroll(true)
                 coroutineScope.launch {
